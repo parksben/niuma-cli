@@ -315,17 +315,7 @@ export const installCommand = new Command('install')
     const alreadyInstalled = existsSync(join(serverPath, 'package.json'));
 
     if (alreadyInstalled) {
-      const { overwrite } = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'overwrite',
-        message: `目录 ${serverPath} 已存在安装，是否更新（git pull）？`,
-        default: true,
-      }]);
-      if (!overwrite) {
-        console.log(chalk.yellow('跳过 niuma-server 部署'));
-      } else {
-        await deployServer({ serverPath, serverPort, emailAnswers, update: true });
-      }
+      await deployServer({ serverPath, serverPort, emailAnswers, update: true });
     } else {
       await deployServer({ serverPath, serverPort, emailAnswers, update: false });
     }
@@ -520,6 +510,26 @@ export const installCommand = new Command('install')
 
 async function deployServer({ serverPath, serverPort, emailAnswers, update }) {
   const repoUrl = 'https://github.com/parksben/niuma-server.git';
+
+  // 先停止旧服务
+  const stopSpinner = ora('停止旧的 niuma-server...').start();
+  try {
+    execSync('systemctl stop niuma-server', { stdio: 'pipe' });
+    stopSpinner.succeed('旧服务已停止');
+  } catch {
+    // systemd 不可用或服务未注册，尝试 kill 端口占用进程
+    try {
+      const pid = execSync(`lsof -ti tcp:${serverPort} 2>/dev/null || fuser ${serverPort}/tcp 2>/dev/null`, { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+      if (pid) {
+        execSync(`kill -9 ${pid}`, { stdio: 'pipe' });
+        stopSpinner.succeed(`旧进程（PID ${pid}）已终止`);
+      } else {
+        stopSpinner.succeed('无旧进程，继续安装');
+      }
+    } catch {
+      stopSpinner.succeed('无旧进程，继续安装');
+    }
+  }
 
   // Clone / pull
   const cloneSpinner = ora(update ? '正在更新 niuma-server...' : '正在克隆 niuma-server...').start();
