@@ -301,7 +301,7 @@ export const installCommand = new Command('install')
         type: 'input',
         name: 'serverPath',
         message: 'niuma-server 安装路径：',
-        default: config.server?.path || '/opt/niuma-server',
+        default: config.server?.path || `${homedir()}/niuma-server`,
       },
       {
         type: 'number',
@@ -511,7 +511,12 @@ export const installCommand = new Command('install')
 
 async function deployServer({ serverPath, serverPort, emailAnswers, update }) {
   const repoUrl = 'https://github.com/parksben/niuma-server.git';
+  const mirrorUrl = 'https://ghproxy.net/https://github.com/parksben/niuma-server.git';
 
+  // 选择 clone 地址（优先镜像）
+  function tryClone(url, path) {
+    execSync(`git clone "${url}" "${path}"`, { stdio: 'pipe', timeout: 60000 });
+  }
   // 先停止旧服务
   const stopSpinner = ora('停止旧的 niuma-server...').start();
   try {
@@ -538,7 +543,13 @@ async function deployServer({ serverPath, serverPort, emailAnswers, update }) {
     if (update) {
       execSync(`git -C "${serverPath}" pull`, { stdio: 'pipe' });
     } else {
-      execSync(`git clone "${repoUrl}" "${serverPath}"`, { stdio: 'pipe' });
+      // 优先走镜像，失败回退直连
+      try {
+        tryClone(mirrorUrl, serverPath);
+      } catch {
+        cloneSpinner.text = '镜像超时，回退 GitHub 直连...';
+        tryClone(repoUrl, serverPath);
+      }
     }
     cloneSpinner.succeed(update ? 'niuma-server 已更新' : 'niuma-server 克隆完成');
   } catch (err) {
