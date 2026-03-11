@@ -32,26 +32,43 @@ fi
 
 echo -e "${GREEN}✓ Node.js v$(node --version | tr -d v) 检测通过${NC}"
 
-# 下载 niuma-cli
-echo ""
-echo "正在下载 niuma-cli..."
+# 判断是全新安装还是更新
+if [ -d "$INSTALL_DIR" ]; then
+  echo ""
+  echo "检测到已安装的版本，正在更新到最新代码..."
+  IS_UPDATE=1
+else
+  echo ""
+  echo "正在下载 niuma-cli..."
+  IS_UPDATE=0
+fi
 
-rm -rf "$INSTALL_DIR"
-mkdir -p "$INSTALL_DIR"
+# 下载到临时目录，成功后再替换，避免下载失败破坏现有安装
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
 
 if command -v curl &> /dev/null; then
-  curl -fsSL "$ARCHIVE_URL" | tar -xz -C "$INSTALL_DIR" --strip-components=1
+  curl -fsSL "$ARCHIVE_URL" | tar -xz -C "$TMP_DIR" --strip-components=1
 elif command -v wget &> /dev/null; then
-  wget -qO- "$ARCHIVE_URL" | tar -xz -C "$INSTALL_DIR" --strip-components=1
+  wget -qO- "$ARCHIVE_URL" | tar -xz -C "$TMP_DIR" --strip-components=1
 else
   echo -e "${RED}✗ 需要 curl 或 wget${NC}"
   exit 1
 fi
 
-# 安装依赖
+# 安装依赖（跳过 npm 缓存，确保拉取最新）
 echo "安装依赖..."
-cd "$INSTALL_DIR"
-npm install --production --silent
+cd "$TMP_DIR"
+npm install --production --prefer-online --silent
+
+# 替换安装目录（保留旧版用户配置文件 niuma.config.json）
+if [ "$IS_UPDATE" = "1" ] && [ -f "$INSTALL_DIR/niuma.config.json" ]; then
+  cp "$INSTALL_DIR/niuma.config.json" "$TMP_DIR/niuma.config.json"
+fi
+
+rm -rf "$INSTALL_DIR"
+mv "$TMP_DIR" "$INSTALL_DIR"
+trap - EXIT  # 取消 EXIT 清理，目录已移走
 
 # 创建全局命令
 NIUMA_BIN="$HOME/.local/bin/niuma"
@@ -70,14 +87,20 @@ if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
 fi
 
 echo ""
-echo -e "${GREEN}${BOLD}✅ niuma-cli 安装完成！${NC}"
+if [ "$IS_UPDATE" = "1" ]; then
+  echo -e "${GREEN}${BOLD}✅ niuma-cli 已更新到最新版本！${NC}"
+else
+  echo -e "${GREEN}${BOLD}✅ niuma-cli 安装完成！${NC}"
+fi
 echo ""
 echo -e "  运行 ${BOLD}niuma install${NC} 开始部署 niuma 服务"
 echo ""
 
-# 询问是否立即运行
-read -p "是否立即运行 niuma install？[Y/n] " yn
-yn=${yn:-Y}
-if [[ "$yn" =~ ^[Yy]$ ]]; then
-  node "$INSTALL_DIR/src/index.js" install
+# 仅首次安装时询问是否立即运行
+if [ "$IS_UPDATE" = "0" ]; then
+  read -p "是否立即运行 niuma install？[Y/n] " yn
+  yn=${yn:-Y}
+  if [[ "$yn" =~ ^[Yy]$ ]]; then
+    node "$INSTALL_DIR/src/index.js" install
+  fi
 fi
