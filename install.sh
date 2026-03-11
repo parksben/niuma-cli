@@ -4,7 +4,8 @@ set -e
 REPO="parksben/niuma-cli"
 BRANCH="main"
 INSTALL_DIR="$HOME/.niuma-cli"
-ARCHIVE_URL="https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz"
+GITHUB_URL="https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz"
+MIRROR_URL="https://ghproxy.net/https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz"
 
 # 颜色
 RED='\033[0;31m'
@@ -49,11 +50,20 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 TMP_TAR="$TMP_DIR/niuma-cli.tar.gz"
 
-echo "正在下载 niuma-cli（来自 GitHub）..."
+# 自动选择下载源（优先镜像加速，超时则回退 GitHub 直连）
+echo "正在下载 niuma-cli..."
+ARCHIVE_URL="$MIRROR_URL"
 if command -v curl &> /dev/null; then
-  curl -L --progress-bar "$ARCHIVE_URL" -o "$TMP_TAR"
+  if ! curl -L --progress-bar --connect-timeout 8 "$MIRROR_URL" -o "$TMP_TAR" 2>/dev/null; then
+    echo -e "${CYAN}镜像超时，回退到 GitHub 直连...${NC}"
+    ARCHIVE_URL="$GITHUB_URL"
+    curl -L --progress-bar "$GITHUB_URL" -o "$TMP_TAR"
+  fi
 elif command -v wget &> /dev/null; then
-  wget --show-progress -q "$ARCHIVE_URL" -O "$TMP_TAR"
+  if ! wget --show-progress -q --timeout=8 "$MIRROR_URL" -O "$TMP_TAR" 2>/dev/null; then
+    echo -e "${CYAN}镜像超时，回退到 GitHub 直连...${NC}"
+    wget --show-progress -q "$GITHUB_URL" -O "$TMP_TAR"
+  fi
 else
   echo -e "${RED}✗ 需要 curl 或 wget${NC}"
   exit 1
