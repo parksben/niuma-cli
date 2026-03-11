@@ -1,5 +1,6 @@
 import { execSync } from 'child_process';
 import { existsSync } from 'fs';
+import { homedir } from 'os';
 
 function getGatewayUrl() {
   if (process.env.OPENCLAW_GATEWAY) return process.env.OPENCLAW_GATEWAY;
@@ -21,7 +22,7 @@ export async function detectOpenClaw() {
   // 常见安装路径
   const candidates = [
     process.env.OPENCLAW_HOME,
-    `${process.env.HOME}/.openclaw`,
+    `${homedir()}/.openclaw`,
     '/root/.openclaw',
     '/opt/openclaw',
     '/usr/local/openclaw',

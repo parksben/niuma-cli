@@ -3,6 +3,7 @@ import inquirer from 'inquirer';
 import chalk from 'chalk';
 import ora from 'ora';
 import { execSync } from 'child_process';
+import { homedir } from 'os';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { loadConfig, saveConfig } from '../lib/config.js';
@@ -126,7 +127,7 @@ agentsCommand
   .description('安装/更新 Agent 套餐')
   .action(async () => {
     const config = loadConfig();
-    const openclawHome = config.openclawPath || process.env.OPENCLAW_HOME || '/root/.openclaw';
+    const openclawHome = config.openclawPath || process.env.OPENCLAW_HOME || `${homedir()}/.openclaw`;
 
     console.log(chalk.bold.cyan('\n选择要安装的 Agent 套餐\n'));
 

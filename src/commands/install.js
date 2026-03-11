@@ -3,6 +3,7 @@ import inquirer from 'inquirer';
 import chalk from 'chalk';
 import ora from 'ora';
 import nodemailer from 'nodemailer';
+import { homedir } from 'os';
 import { execSync } from 'child_process';
 import { existsSync, writeFileSync } from 'fs';
 import { networkInterfaces } from 'os';
@@ -268,7 +269,7 @@ export const installCommand = new Command('install')
       const as = ora(`  创建 Agent: ${agent.name}（${agent.id}）`).start();
       try {
         // 创建 agent workspace 目录并写入 SOUL.md / IDENTITY.md
-        const agentWorkspace = `/root/.openclaw/workspaces/${agent.id}`;
+        const agentWorkspace = `${homedir()}/.openclaw/workspaces/${agent.id}`;
         execSync(`mkdir -p "${agentWorkspace}"`, { stdio: 'pipe' });
         writeFileSync(`${agentWorkspace}/SOUL.md`, agent.systemPrompt, 'utf8');
         writeFileSync(`${agentWorkspace}/IDENTITY.md`, `# IDENTITY.md\n- **Name:** ${agent.name}\n- **Role:** ${agent.description}\n`, 'utf8');
