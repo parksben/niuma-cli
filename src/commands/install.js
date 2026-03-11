@@ -206,13 +206,15 @@ export const installCommand = new Command('install')
         type: 'input',
         name: 'smtpHost',
         message: 'SMTP 服务器：',
-        default: config.email?.smtpHost || 'smtp.126.com',
+        default: config.email?.smtpHost,
+        placeholder: 'e.g. smtp.gmail.com / smtp.qq.com / smtp.126.com',
       },
       {
         type: 'number',
         name: 'smtpPort',
         message: 'SMTP 端口：',
-        default: config.email?.smtpPort || 465,
+        default: config.email?.smtpPort,
+        placeholder: 'e.g. 465 (SSL) or 587 (TLS)',
       },
     ]);
 
