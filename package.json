@@ -1,5 +1,5 @@
 {
-  "name": "niuma-cli",
+  "name": "niuma",
   "version": "0.1.0",
   "description": "牛马产品统一命令行工具",
   "type": "module",
