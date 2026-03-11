@@ -1,7 +1,17 @@
 import { execSync } from 'child_process';
 import { existsSync } from 'fs';
 
-const GATEWAY_URL = process.env.OPENCLAW_GATEWAY || 'http://127.0.0.1:3000';
+function getGatewayUrl() {
+  if (process.env.OPENCLAW_GATEWAY) return process.env.OPENCLAW_GATEWAY;
+  try {
+    const out = execSync('openclaw gateway status 2>&1', { stdio: ['pipe', 'pipe', 'pipe'] }).toString();
+    const m = out.match(/port=(\d+)/);
+    if (m) return `http://127.0.0.1:${m[1]}`;
+  } catch {}
+  return 'http://127.0.0.1:18789';
+}
+
+const GATEWAY_URL = getGatewayUrl();
 
 /**
  * 检测服务器上是否已有 OpenClaw 安装
