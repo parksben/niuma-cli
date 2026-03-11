@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import ora from 'ora';
+import nodemailer from 'nodemailer';
 import { execSync } from 'child_process';
 import { existsSync, writeFileSync } from 'fs';
 import { networkInterfaces } from 'os';
@@ -224,10 +225,21 @@ export const installCommand = new Command('install')
     if (sendTestEmail) {
       const testSpinner = ora('正在发送测试邮件...').start();
       try {
-        // 简单 SMTP 连通性测试（占位，实际可集成 nodemailer）
-        testSpinner.warn('测试邮件功能需 niuma-server 运行后再验证，已跳过');
+        const transporter = nodemailer.createTransport({
+          host: smtpHost,
+          port: smtpPort,
+          secure: smtpPort === 465,
+          auth: { user: emailAddress, pass: smtpToken },
+        });
+        await transporter.sendMail({
+          from: emailAddress,
+          to: emailAddress,
+          subject: '牛马 niuma-server 邮件配置验证',
+          text: '如果你收到这封邮件，说明 SMTP 配置正确 ✅',
+        });
+        testSpinner.succeed(chalk.green(`测试邮件已发送至 ${emailAddress}，请查收`));
       } catch (err) {
-        testSpinner.fail(`测试失败：${err.message}`);
+        testSpinner.fail(`发送失败：${err.message}`);
       }
     }
     console.log();
