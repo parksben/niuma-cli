@@ -1,58 +1,53 @@
-# niuma-cli
+# 🐂🐴 niuma-cli
 
-> 牛马产品统一命令行工具 🐂🐴
+牛马多 Agent 协作平台命令行工具。
 
-## 简介
-
-`niuma-cli` 是牛马（niuma）产品的命令行工具，用于在服务器或本地电脑上完成：
-
-1. 检测并连接已安装的 OpenClaw（支持多实例，可手动指定路径）
-2. 配置邮箱 SMTP
-3. 在 OpenClaw 上创建牛马 Agent 套件（规划师、工程师、设计师、分析师、文案）
-4. 一键部署并启动 niuma-server（支持 HTTPS + 域名配置）
-
-## 安装
+## 快速安装
 
 ```bash
-npm install -g niuma-cli
+curl -fsSL https://raw.githubusercontent.com/parksben/niuma-cli/main/install.sh | bash
 ```
 
-## 快速开始
+安装完成后运行：
 
 ```bash
 niuma install
 ```
 
-按照交互式向导完成所有配置，5 步搞定。
+按照向导完成部署，即可启动你的 AI 团队。
 
-也可以指定 OpenClaw 路径（多实例场景）：
+## 功能
 
-```bash
-niuma install --openclaw-path /opt/my-openclaw
-```
+- `niuma install` — 一键部署 niuma-server + OpenClaw + Agent 套餐
+- `niuma server start/stop/restart/status/logs` — 管理 niuma-server 服务
+- `niuma agents list` — 查看已安装的 Agent
+- `niuma agents install` — 安装/更新 Agent 套餐
+- `niuma config` — 修改配置（SMTP、端口等）
 
-## 命令说明
-
-| 命令 | 说明 |
-|------|------|
-| `niuma install` | 交互式安装向导（首次使用从这里开始） |
-| `niuma install --openclaw-path <path>` | 指定 OpenClaw 安装路径 |
-| `niuma server start` | 启动 niuma-server |
-| `niuma server stop` | 停止 niuma-server |
-| `niuma server restart` | 重启 niuma-server |
-| `niuma server status` | 查看运行状态 |
-| `niuma server logs` | 查看日志（`-f` 实时跟踪） |
-| `niuma agents list` | 查看已安装的 Agent |
-
-## 前提条件
+## 系统要求
 
 - Node.js 18+
-- 已安装 [OpenClaw](https://openclaw.ai)（Gateway 正在运行）
-- git（用于克隆 niuma-server）
-- systemd（用于服务管理，Linux 环境）
-- 可选：Caddy（用于 HTTPS 自动证书）
+- Linux / macOS（Windows 暂不支持）
+- OpenClaw（安装向导会自动引导）
 
-## 相关仓库
+## 手动安装
 
-- App：[niuma](https://github.com/parksben/niuma)
-- 服务端：[niuma-server](https://github.com/parksben/niuma-server)
+```bash
+git clone https://github.com/parksben/niuma-cli.git
+cd niuma-cli
+npm install
+npm link
+niuma install
+```
+
+## 更新
+
+重新运行安装脚本即可获取最新版本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/parksben/niuma-cli/main/install.sh | bash
+```
+
+## License
+
+MIT
