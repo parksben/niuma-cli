@@ -301,7 +301,7 @@ export const installCommand = new Command('install')
         type: 'input',
         name: 'serverPath',
         message: 'niuma-server 安装路径：',
-        default: config.server?.path || `${homedir()}/niuma-server`,
+        default: (config.server?.path && !config.server.path.startsWith('/opt/') && !config.server.path.startsWith('/root/')) ? config.server.path : `${homedir()}/niuma-server`,
       },
       {
         type: 'number',
