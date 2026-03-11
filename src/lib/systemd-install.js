@@ -9,7 +9,7 @@ const SERVICE_PATH = '/etc/systemd/system/niuma-server.service';
  */
 export function writeSystemdService({ serverPath, serverPort }) {
   const nodebin = process.execPath;
-  const entry = join(serverPath, 'server.js');
+  const entry = join(serverPath, 'index.js');
 
   const content = `[Unit]
 Description=niuma-server
