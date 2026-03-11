@@ -68,8 +68,7 @@ function nodeStart(config) {
   const serverPath = config.server?.path || '/opt/niuma-server';
   const port = config.server?.port || 3002;
 
-  // TODO: 替换为实际 niuma-server 入口文件路径
-  const entry = join(serverPath, 'server.js');
+  const entry = join(serverPath, 'index.js');
 
   const out = openSync(LOG_FILE, 'a');
   const proc = spawn('node', [entry], {
