@@ -263,6 +263,96 @@ export const installCommand = new Command('install')
     console.log();
 
     // ─────────────────────────────────────────────
+    // Step 4.5: HTTPS 配置（可选）
+    // ─────────────────────────────────────────────
+    const localIP = getLocalIP();
+    let serverUrl = `http://${localIP}:${serverPort}`;
+
+    console.log(chalk.bold('Step 4.5/5  HTTPS 配置（可选）'));
+    console.log(chalk.gray('  前提：域名已解析到此服务器，防火墙已开放 80/443 端口'));
+
+    const { setupHttps } = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'setupHttps',
+      message: '是否配置 HTTPS？（推荐，保障数据安全）',
+      default: false,
+    }]);
+
+    if (setupHttps) {
+      const { domain } = await inquirer.prompt([{
+        type: 'input',
+        name: 'domain',
+        message: '请输入绑定的域名（如 api.yourdomain.com）：',
+        validate: v => (v.includes('.') && !v.includes(' ')) || '请输入有效域名',
+      }]);
+
+      // 检测 DNS 是否指向本机
+      const dnsSpinner = ora(`检测 DNS 解析（${domain}）...`).start();
+      let dnsOk = false;
+      try {
+        const dnsOut = execSync(`dig +short ${domain} 2>/dev/null || nslookup ${domain} 2>/dev/null | grep Address | tail -1`, { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+        dnsOk = dnsOut.includes(localIP);
+        if (dnsOk) {
+          dnsSpinner.succeed(chalk.green(`DNS 已指向本机（${localIP}）`));
+        } else {
+          dnsSpinner.warn(chalk.yellow(`DNS 解析结果（${dnsOut || '未解析'}）与本机 IP（${localIP}）不符，HTTPS 证书申请可能失败`));
+        }
+      } catch {
+        dnsSpinner.warn('无法检测 DNS，请手动确认域名已解析到本机');
+      }
+
+      // 检测 Caddy
+      let caddyBin = null;
+      try {
+        caddyBin = execSync('which caddy', { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
+      } catch {}
+
+      if (!caddyBin) {
+        console.log(chalk.yellow('\n  ⚠ 未检测到 Caddy，请先安装：'));
+        console.log(chalk.gray('    curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg'));
+        console.log(chalk.gray('    # 或参考：https://caddyserver.com/docs/install\n'));
+        const { skipCaddy } = await inquirer.prompt([{
+          type: 'confirm',
+          name: 'skipCaddy',
+          message: '跳过 HTTPS 配置，稍后手动安装 Caddy？',
+          default: true,
+        }]);
+        if (skipCaddy) {
+          console.log(chalk.yellow('  已跳过 HTTPS，后续可运行 niuma install --https 单独配置'));
+        }
+      } else {
+        // 写入 Caddy 配置片段
+        const caddyConfig = `\n# niuma-server\n${domain} {\n  reverse_proxy localhost:${serverPort}\n}\n`;
+        const caddyfilePath = '/etc/caddy/Caddyfile';
+        let caddySpinner = ora('写入 Caddy 反代配置...').start();
+        try {
+          const existing = existsSync(caddyfilePath) ? readFileSync(caddyfilePath, 'utf8') : '';
+          if (!existing.includes(domain)) {
+            writeFileSync(caddyfilePath, existing + caddyConfig);
+          }
+          execSync('systemctl reload caddy || caddy reload --config /etc/caddy/Caddyfile', { stdio: 'pipe' });
+          caddySpinner.succeed('Caddy 配置已更新');
+
+          // 健康检查 HTTPS
+          await new Promise(r => setTimeout(r, 3000));
+          const httpsSpinner = ora(`验证 https://${domain}/health ...`).start();
+          try {
+            execSync(`curl -sf https://${domain}/health`, { stdio: 'pipe' });
+            httpsSpinner.succeed(chalk.green(`HTTPS 验证通过`));
+            serverUrl = `https://${domain}`;
+          } catch {
+            httpsSpinner.warn('HTTPS 验证未通过，证书可能还在申请中（通常需要 1-2 分钟），稍后可手动验证');
+            serverUrl = `https://${domain}`;
+          }
+        } catch (err) {
+          caddySpinner.fail(`Caddy 配置失败：${err.message}`);
+          console.log(chalk.yellow('  已跳过 HTTPS，服务仍通过 HTTP 访问'));
+        }
+      }
+    }
+    console.log();
+
+    // ─────────────────────────────────────────────
     // Step 5: 完成
     // ─────────────────────────────────────────────
     console.log(chalk.bold('Step 5/5  完成'));
@@ -273,18 +363,15 @@ export const installCommand = new Command('install')
       openclawPath,
       email: {
         address: emailAnswers.email,
-        smtpToken: emailAnswers.smtpToken,
         smtpHost: emailAnswers.smtpHost,
         smtpPort: emailAnswers.smtpPort,
       },
       server: {
         port: serverPort,
         path: serverPath,
+        url: serverUrl,
       },
     });
-
-    const localIP = getLocalIP();
-    const serverUrl = `http://${localIP}:${serverPort}`;
 
     // 读取 .env 中的 JWT_SECRET 用于展示
     let jwtSecret = '（见 ' + serverPath + '/.env）';
