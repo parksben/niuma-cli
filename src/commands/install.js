@@ -225,6 +225,7 @@ export const installCommand = new Command('install')
     }]);
 
     if (sendTestEmail) {
+      const { email: emailAddress, smtpToken, smtpHost, smtpPort } = emailAnswers;
       const testSpinner = ora('正在发送测试邮件...').start();
       try {
         const transporter = nodemailer.createTransport({
