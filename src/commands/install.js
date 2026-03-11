@@ -507,6 +507,7 @@ export const installCommand = new Command('install')
       }
     }
     console.log();
+  });
 
 async function deployServer({ serverPath, serverPort, emailAnswers, update }) {
   const repoUrl = 'https://github.com/parksben/niuma-server.git';
