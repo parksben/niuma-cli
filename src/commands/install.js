@@ -9,9 +9,6 @@ import { join } from 'path';
 import {
   detectOpenClaw,
   checkGateway,
-  detectAgentApi,
-  listAgents,
-  createAgent,
   GATEWAY_URL,
 } from '../lib/openclaw.js';
 import { saveConfig, loadConfig } from '../lib/config.js';
@@ -21,30 +18,35 @@ const AGENTS = [
   {
     id: 'niuma-planner',
     name: '规划师',
+    emoji: '📋',
     description: '统筹规划，任务拆解，协调团队',
     systemPrompt: '你是一个专业的项目规划师，擅长任务分解、优先级排序和团队协调。请用中文回复。',
   },
   {
     id: 'niuma-coder',
     name: '工程师',
+    emoji: '💻',
     description: '全栈开发，代码实现，技术方案',
     systemPrompt: '你是一个经验丰富的全栈工程师，精通前后端开发。请用中文回复，代码注释用中文。',
   },
   {
     id: 'niuma-designer',
     name: '设计师',
+    emoji: '🎨',
     description: 'UI/UX 设计，视觉规范，用户体验',
     systemPrompt: '你是一个专业的 UI/UX 设计师，擅长界面设计和用户体验优化。请用中文回复。',
   },
   {
     id: 'niuma-analyst',
     name: '分析师',
+    emoji: '📊',
     description: '数据分析，市场研究，决策支持',
     systemPrompt: '你是一个专业的数据分析师，擅长数据解读和商业洞察。请用中文回复。',
   },
   {
     id: 'niuma-writer',
     name: '文案',
+    emoji: '✍️',
     description: '内容创作，文案撰写，品牌传播',
     systemPrompt: '你是一个专业的内容创作者，擅长各类文案写作。请用中文回复。',
   },
@@ -145,33 +147,43 @@ export const installCommand = new Command('install')
     // Step 3: 在 OpenClaw 上创建 Agent 套件
     // ─────────────────────────────────────────────
     console.log(chalk.bold('Step 3/5  创建 Agent 套件'));
-    const s3 = ora('探测 OpenClaw Agent API...').start();
-    const apiPaths = await detectAgentApi();
-    if (!apiPaths) {
-      s3.warn('无法探测到 Agent API，跳过 Agent 创建步骤');
-    } else {
-      s3.succeed(`Agent API: ${apiPaths.listPath}`);
 
-      const existingAgents = await listAgents(apiPaths.listPath);
-      const existingIds = new Set(existingAgents.map(a => a.id || a.name));
-      const existingNames = new Set(existingAgents.map(a => a.name));
+    // 获取已有 agents
+    let existingAgentIds = new Set();
+    try {
+      const listOut = execSync('openclaw agents list --json', { stdio: ['pipe', 'pipe', 'pipe'] }).toString();
+      const listData = JSON.parse(listOut);
+      const agents = Array.isArray(listData) ? listData : (listData.agents || []);
+      existingAgentIds = new Set(agents.map(a => a.id || a.name));
+    } catch (e) {
+      console.log(chalk.yellow('  ⚠ 无法获取已有 Agent 列表，将尝试创建所有 Agent'));
+    }
 
-      for (const agent of AGENTS) {
-        if (existingIds.has(agent.id) || existingNames.has(agent.name)) {
-          console.log(chalk.gray(`  ⏭  ${agent.name}（${agent.id}）已存在，跳过`));
-          continue;
-        }
-        const as = ora(`  创建 Agent: ${agent.name}（${agent.id}）`).start();
-        try {
-          const ok = await createAgent(apiPaths.createPath, agent);
-          if (ok) {
-            as.succeed(chalk.green(`  ✓ ${agent.name}（${agent.id}）`));
-          } else {
-            as.warn(chalk.yellow(`  ⚠ ${agent.name} 创建响应异常，请手动确认`));
-          }
-        } catch (err) {
-          as.fail(chalk.red(`  ✗ ${agent.name} 创建失败：${err.message}`));
-        }
+    for (const agent of AGENTS) {
+      if (existingAgentIds.has(agent.id)) {
+        console.log(chalk.gray(`  ⏭  ${agent.name}（${agent.id}）已存在，跳过`));
+        continue;
+      }
+      const as = ora(`  创建 Agent: ${agent.name}（${agent.id}）`).start();
+      try {
+        // 创建 agent workspace 目录并写入 SOUL.md / IDENTITY.md
+        const agentWorkspace = `/root/.openclaw/workspaces/${agent.id}`;
+        execSync(`mkdir -p "${agentWorkspace}"`, { stdio: 'pipe' });
+        writeFileSync(`${agentWorkspace}/SOUL.md`, agent.systemPrompt, 'utf8');
+        writeFileSync(`${agentWorkspace}/IDENTITY.md`, `# IDENTITY.md\n- **Name:** ${agent.name}\n- **Role:** ${agent.description}\n`, 'utf8');
+        // 用 openclaw agents add 创建
+        execSync(
+          `openclaw agents add "${agent.id}" --workspace "${agentWorkspace}" --non-interactive`,
+          { stdio: ['pipe', 'pipe', 'pipe'] }
+        );
+        // 设置名称和 emoji
+        execSync(
+          `openclaw agents set-identity --agent "${agent.id}" --name "${agent.name}" --emoji "${agent.emoji || '🤖'}"`,
+          { stdio: ['pipe', 'pipe', 'pipe'] }
+        );
+        as.succeed(chalk.green(`  ✓ ${agent.name}（${agent.id}）`));
+      } catch (err) {
+        as.fail(chalk.red(`  ✗ ${agent.name} 创建失败：${err.message}`));
       }
     }
     console.log();
