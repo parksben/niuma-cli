@@ -48,9 +48,11 @@ TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 if command -v curl &> /dev/null; then
-  curl -fsSL "$ARCHIVE_URL" | tar -xz -C "$TMP_DIR" --strip-components=1
+  curl -fsSL --progress-bar "$ARCHIVE_URL" | tar -xz -C "$TMP_DIR" --strip-components=1
+  echo -e "${GREEN}✓ 下载完成${NC}"
 elif command -v wget &> /dev/null; then
-  wget -qO- "$ARCHIVE_URL" | tar -xz -C "$TMP_DIR" --strip-components=1
+  wget --progress=bar:force -O- "$ARCHIVE_URL" 2>&1 | tar -xz -C "$TMP_DIR" --strip-components=1
+  echo -e "${GREEN}✓ 下载完成${NC}"
 else
   echo -e "${RED}✗ 需要 curl 或 wget${NC}"
   exit 1
@@ -59,7 +61,7 @@ fi
 # 安装依赖（跳过 npm 缓存，确保拉取最新）
 echo "安装依赖..."
 cd "$TMP_DIR"
-npm install --production --prefer-online --silent
+npm install --production --prefer-online
 
 # 替换安装目录（保留旧版用户配置文件 niuma.config.json）
 if [ "$IS_UPDATE" = "1" ] && [ -f "$INSTALL_DIR/niuma.config.json" ]; then
