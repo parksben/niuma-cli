@@ -3,17 +3,18 @@ import inquirer from 'inquirer';
 import chalk from 'chalk';
 import ora from 'ora';
 import { loadConfig, saveConfig } from '../lib/config.js';
+import { detectAgentApi, listAgents, createAgent } from '../lib/openclaw.js';
 
 const ALL_AGENTS = [
-  { name: 'planning',  label: 'Planning Agent（规划师）' },
-  { name: 'coder',     label: 'Coder Agent（工程师）' },
-  { name: 'writer',    label: 'Writer Agent（写作助手）' },
-  { name: 'analyst',   label: 'Analyst Agent（分析师）' },
-  { name: 'designer',  label: 'Designer Agent（设计师）' },
-  { name: 'devops',    label: 'DevOps Agent（运维工程师）' },
-  { name: 'qa',        label: 'QA Agent（测试工程师）' },
-  { name: 'sales',     label: 'Sales Agent（销售助手）' },
-  { name: 'support',   label: 'Support Agent（客服助手）' },
+  { name: 'planning', label: 'Planning Agent（规划师）' },
+  { name: 'coder', label: 'Coder Agent（工程师）' },
+  { name: 'writer', label: 'Writer Agent（写作助手）' },
+  { name: 'analyst', label: 'Analyst Agent（分析师）' },
+  { name: 'designer', label: 'Designer Agent（设计师）' },
+  { name: 'devops', label: 'DevOps Agent（运维工程师）' },
+  { name: 'qa', label: 'QA Agent（测试工程师）' },
+  { name: 'sales', label: 'Sales Agent（销售助手）' },
+  { name: 'support', label: 'Support Agent（客服助手）' },
 ];
 
 export const agentsCommand = new Command('agents')
@@ -21,18 +22,47 @@ export const agentsCommand = new Command('agents')
 
 agentsCommand
   .command('list')
-  .description('查看已安装的 Agent')
-  .action(() => {
-    const config = loadConfig();
-    const installed = config.agents || [];
-    if (installed.length === 0) {
-      console.log(chalk.yellow('尚未安装任何 Agent，请运行 niuma agents install'));
+  .description('查看 OpenClaw 上的 niuma-* Agent')
+  .action(async () => {
+    const spinner = ora('正在从 OpenClaw 获取 Agent 列表...').start();
+    const apiPaths = await detectAgentApi();
+    if (!apiPaths) {
+      spinner.fail('无法连接 OpenClaw Gateway，回退到本地配置');
+      const config = loadConfig();
+      const installed = config.agents || [];
+      if (installed.length === 0) {
+        console.log(chalk.yellow('\n尚未安装任何 Agent，请运行 niuma install\n'));
+        return;
+      }
+      console.log(chalk.bold('\n已安装的 Agent（本地记录）：\n'));
+      for (const agentName of installed) {
+        const meta = ALL_AGENTS.find(a => a.name === agentName);
+        console.log(chalk.green('  ✓ ') + (meta ? meta.label : agentName));
+      }
+      console.log();
       return;
     }
-    console.log(chalk.bold('\n已安装的 Agent：\n'));
-    for (const agentName of installed) {
-      const meta = ALL_AGENTS.find(a => a.name === agentName);
-      console.log(chalk.green('  ✓ ') + (meta ? meta.label : agentName));
+
+    const agents = await listAgents(apiPaths.listPath);
+    spinner.stop();
+
+    const niumaAgents = agents.filter(a => {
+      const id = a.id || '';
+      const name = a.name || '';
+      return id.startsWith('niuma-') || name.startsWith('niuma-');
+    });
+
+    if (niumaAgents.length === 0) {
+      console.log(chalk.yellow('\n未找到 niuma-* Agent，请运行 niuma install 创建\n'));
+      return;
+    }
+
+    console.log(chalk.bold(`\n找到 ${niumaAgents.length} 个 niuma-* Agent：\n`));
+    for (const agent of niumaAgents) {
+      const id = agent.id || agent.name || '?';
+      const name = agent.name || id;
+      const desc = agent.description || agent.desc || '';
+      console.log(chalk.green('  ✓ ') + chalk.bold(name) + chalk.gray(` (${id})`) + (desc ? `  —  ${desc}` : ''));
     }
     console.log();
   });
@@ -83,8 +113,7 @@ agentsCommand
 
     const spinner = ora('正在安装 Agent...').start();
     // TODO: 调用 niuma-server API 写入 agent 数据
-    // await initAgents(config.server?.port || 3002, selectedAgents);
-    await new Promise(r => setTimeout(r, 600)); // 占位延时
+    await new Promise(r => setTimeout(r, 600));
     spinner.succeed(`已安装 ${selectedAgents.length} 个 Agent`);
 
     saveConfig({ ...config, agents: selectedAgents });

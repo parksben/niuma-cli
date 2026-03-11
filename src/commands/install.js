@@ -2,8 +2,65 @@ import { Command } from 'commander';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import ora from 'ora';
-import { detectOpenClaw, installOpenClaw } from '../lib/openclaw.js';
+import { execSync } from 'child_process';
+import { existsSync, writeFileSync } from 'fs';
+import { networkInterfaces } from 'os';
+import { join } from 'path';
+import {
+  detectOpenClaw,
+  checkGateway,
+  detectAgentApi,
+  listAgents,
+  createAgent,
+  GATEWAY_URL,
+} from '../lib/openclaw.js';
 import { saveConfig, loadConfig } from '../lib/config.js';
+import { writeSystemdService } from '../lib/systemd-install.js';
+
+const AGENTS = [
+  {
+    id: 'niuma-planner',
+    name: '规划师',
+    description: '统筹规划，任务拆解，协调团队',
+    systemPrompt: '你是一个专业的项目规划师，擅长任务分解、优先级排序和团队协调。请用中文回复。',
+  },
+  {
+    id: 'niuma-coder',
+    name: '工程师',
+    description: '全栈开发，代码实现，技术方案',
+    systemPrompt: '你是一个经验丰富的全栈工程师，精通前后端开发。请用中文回复，代码注释用中文。',
+  },
+  {
+    id: 'niuma-designer',
+    name: '设计师',
+    description: 'UI/UX 设计，视觉规范，用户体验',
+    systemPrompt: '你是一个专业的 UI/UX 设计师，擅长界面设计和用户体验优化。请用中文回复。',
+  },
+  {
+    id: 'niuma-analyst',
+    name: '分析师',
+    description: '数据分析，市场研究，决策支持',
+    systemPrompt: '你是一个专业的数据分析师，擅长数据解读和商业洞察。请用中文回复。',
+  },
+  {
+    id: 'niuma-writer',
+    name: '文案',
+    description: '内容创作，文案撰写，品牌传播',
+    systemPrompt: '你是一个专业的内容创作者，擅长各类文案写作。请用中文回复。',
+  },
+];
+
+function getLocalIP() {
+  const nets = networkInterfaces();
+  for (const iface of Object.values(nets)) {
+    for (const info of iface || []) {
+      if (info.family === 'IPv4' && !info.internal) {
+        return info.address;
+      }
+    }
+  }
+  return 'localhost';
+}
 
 export const installCommand = new Command('install')
   .description('交互式安装向导')
@@ -12,46 +69,32 @@ export const installCommand = new Command('install')
 
     const config = loadConfig();
 
+    // ─────────────────────────────────────────────
     // Step 1: 检测 OpenClaw
+    // ─────────────────────────────────────────────
     console.log(chalk.bold('Step 1/5  检测 OpenClaw'));
-    const spinner = ora('正在检测 OpenClaw 安装...').start();
+    const s1 = ora('正在检测 OpenClaw...').start();
     const existing = await detectOpenClaw();
-    spinner.stop();
+    if (!existing) {
+      s1.fail('未检测到 OpenClaw');
+      console.error(chalk.red('\n❌ 未检测到 OpenClaw，请先安装：https://openclaw.ai\n'));
+      process.exit(1);
+    }
+    s1.succeed(chalk.green(`检测到 OpenClaw（${existing}）`));
 
-    let openclawPath;
-    if (existing) {
-      console.log(chalk.green(`  ✓ 检测到服务器上已有 OpenClaw（${existing}）`));
-      const { useExisting } = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'useExisting',
-        message: '是否使用现有的 OpenClaw？',
-        default: true,
-      }]);
-      if (useExisting) {
-        openclawPath = existing;
-      } else {
-        const { customPath } = await inquirer.prompt([{
-          type: 'input',
-          name: 'customPath',
-          message: '新的安装路径：',
-          default: '/opt/niuma-openclaw',
-        }]);
-        openclawPath = customPath;
-      }
+    const s1b = ora('正在连接 OpenClaw Gateway...').start();
+    const gatewayOk = await checkGateway();
+    if (!gatewayOk) {
+      s1b.warn(chalk.yellow(`Gateway 未响应（${GATEWAY_URL}），将继续但 Agent 创建步骤可能失败`));
     } else {
-      console.log(chalk.yellow('  ✗ 未检测到 OpenClaw'));
-      const { installPath } = await inquirer.prompt([{
-        type: 'input',
-        name: 'installPath',
-        message: 'OpenClaw 安装路径：',
-        default: '/opt/niuma-openclaw',
-      }]);
-      openclawPath = installPath;
+      s1b.succeed(chalk.green(`Gateway 在线（${GATEWAY_URL}）`));
     }
     console.log();
 
-    // Step 2: 配置邮箱
-    console.log(chalk.bold('Step 2/5  配置邮箱'));
+    // ─────────────────────────────────────────────
+    // Step 2: 配置邮箱 SMTP
+    // ─────────────────────────────────────────────
+    console.log(chalk.bold('Step 2/5  配置邮箱 SMTP'));
     const emailAnswers = await inquirer.prompt([
       {
         type: 'input',
@@ -79,115 +122,188 @@ export const installCommand = new Command('install')
         default: config.email?.smtpPort || 465,
       },
     ]);
+
+    const { sendTestEmail } = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'sendTestEmail',
+      message: '是否发送测试邮件验证配置？',
+      default: false,
+    }]);
+
+    if (sendTestEmail) {
+      const testSpinner = ora('正在发送测试邮件...').start();
+      try {
+        // 简单 SMTP 连通性测试（占位，实际可集成 nodemailer）
+        testSpinner.warn('测试邮件功能需 niuma-server 运行后再验证，已跳过');
+      } catch (err) {
+        testSpinner.fail(`测试失败：${err.message}`);
+      }
+    }
     console.log();
 
-    // Step 3: 配置服务
-    console.log(chalk.bold('Step 3/5  配置服务'));
+    // ─────────────────────────────────────────────
+    // Step 3: 在 OpenClaw 上创建 Agent 套件
+    // ─────────────────────────────────────────────
+    console.log(chalk.bold('Step 3/5  创建 Agent 套件'));
+    const s3 = ora('探测 OpenClaw Agent API...').start();
+    const apiPaths = await detectAgentApi();
+    if (!apiPaths) {
+      s3.warn('无法探测到 Agent API，跳过 Agent 创建步骤');
+    } else {
+      s3.succeed(`Agent API: ${apiPaths.listPath}`);
+
+      const existingAgents = await listAgents(apiPaths.listPath);
+      const existingIds = new Set(existingAgents.map(a => a.id || a.name));
+      const existingNames = new Set(existingAgents.map(a => a.name));
+
+      for (const agent of AGENTS) {
+        if (existingIds.has(agent.id) || existingNames.has(agent.name)) {
+          console.log(chalk.gray(`  ⏭  ${agent.name}（${agent.id}）已存在，跳过`));
+          continue;
+        }
+        const as = ora(`  创建 Agent: ${agent.name}（${agent.id}）`).start();
+        try {
+          const ok = await createAgent(apiPaths.createPath, agent);
+          if (ok) {
+            as.succeed(chalk.green(`  ✓ ${agent.name}（${agent.id}）`));
+          } else {
+            as.warn(chalk.yellow(`  ⚠ ${agent.name} 创建响应异常，请手动确认`));
+          }
+        } catch (err) {
+          as.fail(chalk.red(`  ✗ ${agent.name} 创建失败：${err.message}`));
+        }
+      }
+    }
+    console.log();
+
+    // ─────────────────────────────────────────────
+    // Step 4: 部署 niuma-server
+    // ─────────────────────────────────────────────
+    console.log(chalk.bold('Step 4/5  部署 niuma-server'));
     const serverAnswers = await inquirer.prompt([
-      {
-        type: 'number',
-        name: 'serverPort',
-        message: 'niuma-server 端口：',
-        default: config.server?.port || 3002,
-      },
       {
         type: 'input',
         name: 'serverPath',
         message: 'niuma-server 安装路径：',
         default: config.server?.path || '/opt/niuma-server',
       },
+      {
+        type: 'number',
+        name: 'serverPort',
+        message: 'niuma-server 端口：',
+        default: config.server?.port || 3002,
+      },
     ]);
-    console.log();
 
-    // Step 4: 选择 Agent 套餐
-    console.log(chalk.bold('Step 4/5  选择 Agent 套餐'));
-    const AGENT_PACKAGES = {
-      '基础套餐（Planning + Coder + Writer + Analyst）': ['planning', 'coder', 'writer', 'analyst'],
-      '研发团队（基础 + Designer + DevOps + QA）': ['planning', 'coder', 'writer', 'analyst', 'designer', 'devops', 'qa'],
-      '全家桶（所有角色）': ['planning', 'coder', 'writer', 'analyst', 'designer', 'devops', 'qa', 'sales', 'support'],
-      '自定义': null,
-    };
+    const { serverPath, serverPort } = serverAnswers;
+    const alreadyInstalled = existsSync(join(serverPath, 'package.json'));
 
-    const { packageChoice } = await inquirer.prompt([{
-      type: 'list',
-      name: 'packageChoice',
-      message: '选择 Agent 套餐：',
-      choices: Object.keys(AGENT_PACKAGES),
-    }]);
-
-    let selectedAgents;
-    if (AGENT_PACKAGES[packageChoice] === null) {
-      const { agents } = await inquirer.prompt([{
-        type: 'checkbox',
-        name: 'agents',
-        message: '选择要安装的 Agent：',
-        choices: ['planning', 'coder', 'writer', 'analyst', 'designer', 'devops', 'qa', 'sales', 'support'],
+    if (alreadyInstalled) {
+      const { overwrite } = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'overwrite',
+        message: `目录 ${serverPath} 已存在安装，是否更新（git pull）？`,
+        default: true,
       }]);
-      selectedAgents = agents;
-    } else {
-      selectedAgents = AGENT_PACKAGES[packageChoice];
-    }
-    console.log();
-
-    // Step 5: 确认并安装
-    console.log(chalk.bold('Step 5/5  确认并安装'));
-    console.log(chalk.gray('  配置摘要：'));
-    console.log(chalk.gray(`    OpenClaw 路径：  ${openclawPath}`));
-    console.log(chalk.gray(`    邮箱地址：       ${emailAnswers.email}`));
-    console.log(chalk.gray(`    SMTP 服务器：    ${emailAnswers.smtpHost}:${emailAnswers.smtpPort}`));
-    console.log(chalk.gray(`    niuma-server：   ${serverAnswers.serverPath}（端口 ${serverAnswers.serverPort}）`));
-    console.log(chalk.gray(`    Agent 套餐：     ${selectedAgents.join(', ')}`));
-    console.log();
-
-    const { confirm } = await inquirer.prompt([{
-      type: 'confirm',
-      name: 'confirm',
-      message: '确认开始安装？',
-      default: true,
-    }]);
-
-    if (!confirm) {
-      console.log(chalk.yellow('\n已取消安装。\n'));
-      return;
-    }
-
-    // 执行安装
-    const installSpinner = ora('正在安装 OpenClaw...').start();
-    try {
-      if (!existing || openclawPath !== existing) {
-        // TODO: 调用官方安装脚本，支持自定义 --prefix 路径
-        await installOpenClaw(openclawPath);
+      if (!overwrite) {
+        console.log(chalk.yellow('跳过 niuma-server 部署'));
+      } else {
+        await deployServer({ serverPath, serverPort, emailAnswers, update: true });
       }
-      installSpinner.succeed('OpenClaw 就绪');
-
-      const configSpinner = ora('正在保存配置...').start();
-      const newConfig = {
-        openclawPath,
-        email: {
-          address: emailAnswers.email,
-          smtpToken: emailAnswers.smtpToken,
-          smtpHost: emailAnswers.smtpHost,
-          smtpPort: emailAnswers.smtpPort,
-        },
-        server: {
-          port: serverAnswers.serverPort,
-          path: serverAnswers.serverPath,
-        },
-        agents: selectedAgents,
-      };
-      saveConfig(newConfig);
-      configSpinner.succeed('配置已保存到 ~/.niuma/config.json');
-
-      const agentSpinner = ora('正在初始化 Agent 套件...').start();
-      // TODO: 调用 niuma-server API 写入 agent 数据
-      // await initAgents(serverAnswers.serverPort, selectedAgents);
-      await new Promise(r => setTimeout(r, 800)); // 占位延时
-      agentSpinner.succeed(`已初始化 ${selectedAgents.length} 个 Agent`);
-
-      console.log(chalk.bold.green(`\n✓ 安装完成！niuma-server 运行在 http://localhost:${serverAnswers.serverPort}\n`));
-    } catch (err) {
-      installSpinner.fail('安装失败');
-      console.error(chalk.red(err.message));
-      process.exit(1);
+    } else {
+      await deployServer({ serverPath, serverPort, emailAnswers, update: false });
     }
+    console.log();
+
+    // ─────────────────────────────────────────────
+    // Step 5: 完成
+    // ─────────────────────────────────────────────
+    console.log(chalk.bold('Step 5/5  完成'));
+
+    // 保存配置
+    saveConfig({
+      ...config,
+      openclawPath: existing,
+      email: {
+        address: emailAnswers.email,
+        smtpToken: emailAnswers.smtpToken,
+        smtpHost: emailAnswers.smtpHost,
+        smtpPort: emailAnswers.smtpPort,
+      },
+      server: {
+        port: serverPort,
+        path: serverPath,
+      },
+    });
+
+    const localIP = getLocalIP();
+    console.log(chalk.bold.green(`\n✅ niuma-server 运行在 http://${localIP}:${serverPort}`));
+    console.log(chalk.cyan(`📱 在 App 中填入此地址即可开始使用\n`));
   });
+
+async function deployServer({ serverPath, serverPort, emailAnswers, update }) {
+  const repoUrl = 'https://github.com/parksben/niuma-server.git';
+
+  // Clone / pull
+  const cloneSpinner = ora(update ? '正在更新 niuma-server...' : '正在克隆 niuma-server...').start();
+  try {
+    if (update) {
+      execSync(`git -C "${serverPath}" pull`, { stdio: 'pipe' });
+    } else {
+      execSync(`git clone "${repoUrl}" "${serverPath}"`, { stdio: 'pipe' });
+    }
+    cloneSpinner.succeed(update ? 'niuma-server 已更新' : 'niuma-server 克隆完成');
+  } catch (err) {
+    cloneSpinner.fail(`仓库操作失败：${err.message}`);
+    console.error(chalk.yellow('  提示：请检查网络连接或手动克隆 ' + repoUrl));
+    return;
+  }
+
+  // npm install
+  const npmSpinner = ora('正在安装依赖（npm install --production）...').start();
+  try {
+    execSync(`cd "${serverPath}" && npm install --production`, { stdio: 'pipe' });
+    npmSpinner.succeed('依赖安装完成');
+  } catch (err) {
+    npmSpinner.fail(`依赖安装失败：${err.message}`);
+    return;
+  }
+
+  // 写入 .env
+  const envContent = [
+    `PORT=${serverPort}`,
+    `SMTP_HOST=${emailAnswers.smtpHost}`,
+    `SMTP_PORT=${emailAnswers.smtpPort}`,
+    `SMTP_USER=${emailAnswers.email}`,
+    `SMTP_PASS=${emailAnswers.smtpToken}`,
+    `FROM_EMAIL=${emailAnswers.email}`,
+  ].join('\n') + '\n';
+  writeFileSync(join(serverPath, '.env'), envContent, 'utf8');
+  console.log(chalk.gray('  ✓ .env 写入完成'));
+
+  // 写入 systemd service
+  try {
+    writeSystemdService({ serverPath, serverPort });
+    execSync('systemctl daemon-reload', { stdio: 'pipe' });
+    execSync('systemctl enable niuma-server', { stdio: 'pipe' });
+    execSync('systemctl start niuma-server', { stdio: 'pipe' });
+    console.log(chalk.gray('  ✓ systemd 服务已启动'));
+
+    // 等待 3 秒后健康检查
+    await new Promise(r => setTimeout(r, 3000));
+    const healthSpinner = ora('健康检查...').start();
+    try {
+      const res = await fetch(`http://localhost:${serverPort}/health`, { signal: AbortSignal.timeout(5000) });
+      if (res.ok) {
+        healthSpinner.succeed(chalk.green(`niuma-server 健康检查通过（端口 ${serverPort}）`));
+      } else {
+        healthSpinner.warn(`niuma-server 响应状态 ${res.status}，请检查日志：journalctl -u niuma-server -n 50`);
+      }
+    } catch {
+      healthSpinner.warn(`健康检查超时，请稍后运行：niuma server status`);
+    }
+  } catch (err) {
+    console.log(chalk.yellow(`  ⚠ systemd 配置失败：${err.message}`));
+    console.log(chalk.gray('  提示：可手动运行 systemctl start niuma-server，或使用 niuma server start'));
+  }
+}
