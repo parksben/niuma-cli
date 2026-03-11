@@ -581,6 +581,7 @@ async function deployServer({ serverPath, serverPort, emailAnswers, update }) {
   }
 
   // 写入 .env
+  const envPath = join(serverPath, '.env');
   const envContent = [
     `PORT=${serverPort}`,
     `SMTP_HOST=${emailAnswers.smtpHost}`,
@@ -589,8 +590,8 @@ async function deployServer({ serverPath, serverPort, emailAnswers, update }) {
     `SMTP_PASS=${emailAnswers.smtpToken}`,
     `FROM_EMAIL=${emailAnswers.email}`,
   ].join('\n') + '\n';
-  writeFileSync(join(serverPath, '.env'), envContent, 'utf8');
-  console.log(chalk.gray('  ✓ .env 写入完成'));
+  writeFileSync(envPath, envContent, 'utf8');
+  console.log(chalk.gray(`  ✓ .env 写入完成：${envPath}`));
 
   // 写入 systemd service
   try {
