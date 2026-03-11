@@ -311,7 +311,11 @@ export const installCommand = new Command('install')
       },
     ]);
 
-    const { serverPath, serverPort } = serverAnswers;
+    const { serverPath: rawServerPath, serverPort } = serverAnswers;
+    // 立即展开 ~，避免后续 git clone / node spawn 拿到字面量路径
+    const serverPath = rawServerPath.startsWith('~')
+      ? rawServerPath.replace(/^~/, homedir())
+      : rawServerPath;
     const alreadyInstalled = existsSync(join(serverPath, 'package.json'));
 
     if (alreadyInstalled) {
