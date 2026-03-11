@@ -488,7 +488,7 @@ export const installCommand = new Command('install')
         // systemd 不可用（如 macOS），直接 spawn 进程
         try {
           const { spawn } = await import('child_process');
-          const child = spawn('node', [join(serverPath, 'src/index.js')], {
+          const child = spawn('node', [join(serverPath, 'index.js')], {
             detached: true,
             stdio: 'ignore',
             env: { ...process.env, PORT: String(serverPort) },
