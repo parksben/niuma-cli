@@ -57,7 +57,7 @@ function systemdLogs({ lines, follow }) {
 // ---- 直接 node 进程实现（非 systemd 环境）----
 // 使用 ~/.niuma/server.pid 记录 PID
 
-import { readFileSync, writeFileSync, unlinkSync, existsSync, openSync } from 'fs';
+import { readFileSync, writeFileSync, unlinkSync, existsSync, openSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import os from 'os';
 
@@ -65,16 +65,31 @@ const PID_FILE = join(os.homedir(), '.niuma', 'server.pid');
 const LOG_FILE = join(os.homedir(), '.niuma', 'server.log');
 
 function nodeStart(config) {
-  const serverPath = config.server?.path || '/opt/niuma-server';
+  const serverPath = config.server?.path || join(os.homedir(), 'niuma-server');
   const port = config.server?.port || 3002;
-
   const entry = join(serverPath, 'index.js');
+  const envFile = join(serverPath, '.env');
+
+  // 读取 .env 文件注入环境变量
+  let dotenv = {};
+  if (existsSync(envFile)) {
+    const lines = readFileSync(envFile, 'utf8').split('\n');
+    for (const line of lines) {
+      const m = line.match(/^([^#=]+)=(.*)$/);
+      if (m) dotenv[m[1].trim()] = m[2].trim();
+    }
+  }
+
+  // 确保日志目录存在
+  const dir = join(os.homedir(), '.niuma');
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
   const out = openSync(LOG_FILE, 'a');
   const proc = spawn('node', [entry], {
     detached: true,
     stdio: ['ignore', out, out],
-    env: { ...process.env, PORT: String(port) },
+    env: { ...process.env, ...dotenv, PORT: String(port) },
+    cwd: serverPath,
   });
   proc.unref();
   writeFileSync(PID_FILE, String(proc.pid), 'utf8');
