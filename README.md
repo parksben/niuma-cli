@@ -5,8 +5,13 @@
 ## 快速安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/parksben/niuma-cli/main/install.sh | bash
+curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/parksben/niuma-cli/main/install.sh | bash
 ```
+
+> 国内用户推荐使用上方镜像地址，速度更快。如需直连 GitHub：
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/parksben/niuma-cli/main/install.sh | bash
+> ```
 
 安装完成后运行：
 
@@ -45,7 +50,7 @@ niuma install
 重新运行安装脚本即可获取最新版本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/parksben/niuma-cli/main/install.sh | bash
+curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/parksben/niuma-cli/main/install.sh | bash
 ```
 
 ## License
