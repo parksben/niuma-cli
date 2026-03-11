@@ -1,0 +1,26 @@
+{
+  "name": "niuma-cli",
+  "version": "0.1.0",
+  "description": "牛马产品统一命令行工具",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "niuma": "./src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^11.1.0",
+    "inquirer": "^9.2.12",
+    "ora": "^7.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["niuma", "cli", "openclaw", "agent"],
+  "author": "parksben",
+  "license": "MIT"
+}
