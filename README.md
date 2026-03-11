@@ -4,12 +4,12 @@
 
 ## 简介
 
-`niuma-cli` 是牛马（niuma）产品套件的统一命令行工具，帮助你完成：
+`niuma-cli` 是牛马（niuma）产品的命令行工具，用于在服务器或本地电脑上完成：
 
-- 一键安装并配置 OpenClaw（支持自定义路径）
-- 配置邮箱 SMTP 等基础信息
-- 初始化 Agent 套件
-- 管理 niuma-server 服务（启动/停止/重启/状态/日志）
+1. 检测并连接已安装的 OpenClaw（支持多实例，可手动指定路径）
+2. 配置邮箱 SMTP
+3. 在 OpenClaw 上创建牛马 Agent 套件（规划师、工程师、设计师、分析师、文案）
+4. 一键部署并启动 niuma-server（支持 HTTPS + 域名配置）
 
 ## 安装
 
@@ -25,64 +25,34 @@ niuma install
 
 按照交互式向导完成所有配置，5 步搞定。
 
+也可以指定 OpenClaw 路径（多实例场景）：
+
+```bash
+niuma install --openclaw-path /opt/my-openclaw
+```
+
 ## 命令说明
 
 | 命令 | 说明 |
 |------|------|
-| `niuma install` | 交互式安装向导（首次使用请从这里开始） |
-| `niuma config` | 修改已有配置 |
+| `niuma install` | 交互式安装向导（首次使用从这里开始） |
+| `niuma install --openclaw-path <path>` | 指定 OpenClaw 安装路径 |
 | `niuma server start` | 启动 niuma-server |
 | `niuma server stop` | 停止 niuma-server |
 | `niuma server restart` | 重启 niuma-server |
 | `niuma server status` | 查看运行状态 |
-| `niuma server logs` | 查看日志（支持 `-f` 实时跟踪） |
+| `niuma server logs` | 查看日志（`-f` 实时跟踪） |
 | `niuma agents list` | 查看已安装的 Agent |
-| `niuma agents install` | 安装/更新 Agent 套餐 |
-| `niuma version` | 查看版本信息 |
 
-## 配置文件
+## 前提条件
 
-配置保存在 `~/.niuma/config.json`，包括：
+- Node.js 18+
+- 已安装 [OpenClaw](https://openclaw.ai)（Gateway 正在运行）
+- git（用于克隆 niuma-server）
+- systemd（用于服务管理，Linux 环境）
+- 可选：Caddy（用于 HTTPS 自动证书）
 
-```json
-{
-  "openclawPath": "/root/.openclaw",
-  "email": {
-    "address": "your@email.com",
-    "smtpHost": "smtp.126.com",
-    "smtpPort": 465
-  },
-  "server": {
-    "port": 3002,
-    "path": "/opt/niuma-server"
-  },
-  "agents": ["planning", "coder", "writer", "analyst"]
-}
-```
+## 相关仓库
 
-## Agent 套餐
-
-| 套餐 | 包含角色 |
-|------|---------|
-| 基础套餐 | Planning · Coder · Writer · Analyst |
-| 研发团队 | 基础套餐 + Designer · DevOps · QA |
-| 全家桶 | 所有角色 |
-| 自定义 | 自由选择 |
-
-## 系统要求
-
-- Node.js >= 18
-- Linux（推荐 systemd 环境）
-
-## 开发
-
-```bash
-git clone https://github.com/parksben/niuma-cli.git
-cd niuma-cli
-npm install
-node src/index.js --help
-```
-
-## License
-
-MIT
+- App：[niuma](https://github.com/parksben/niuma)
+- 服务端：[niuma-server](https://github.com/parksben/niuma-server)
