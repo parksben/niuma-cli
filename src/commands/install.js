@@ -472,7 +472,51 @@ export const installCommand = new Command('install')
       console.log(chalk.yellow('     如需从外网访问，请配置端口映射或启用 HTTPS + 公网域名\n'));
     }
     console.log(chalk.gray('  管理命令：niuma server status / start / stop / logs\n'));
-  });
+
+    // 确保服务正在运行（systemd 失败时 fallback 到直接启动）
+    const startSpinner = ora('确认 niuma-server 运行状态...').start();
+    let serverRunning = false;
+    try {
+      const res = await fetch(`http://localhost:${serverPort}/health`, { signal: AbortSignal.timeout(3000) });
+      serverRunning = res.ok;
+    } catch {}
+
+    if (serverRunning) {
+      startSpinner.succeed(chalk.green(`niuma-server 已在运行（端口 ${serverPort}）`));
+    } else {
+      startSpinner.warn('服务未运行，正在尝试启动...');
+      try {
+        execSync('systemctl start niuma-server', { stdio: 'pipe' });
+        await new Promise(r => setTimeout(r, 3000));
+        const res = await fetch(`http://localhost:${serverPort}/health`, { signal: AbortSignal.timeout(5000) });
+        if (res.ok) {
+          console.log(chalk.green('  ✓ niuma-server 启动成功'));
+        } else {
+          throw new Error(`HTTP ${res.status}`);
+        }
+      } catch {
+        // systemd 不可用（如 macOS），直接 spawn 进程
+        try {
+          const { spawn } = await import('child_process');
+          const child = spawn('node', [join(serverPath, 'src/index.js')], {
+            detached: true,
+            stdio: 'ignore',
+            env: { ...process.env, PORT: String(serverPort) },
+          });
+          child.unref();
+          await new Promise(r => setTimeout(r, 3000));
+          const res = await fetch(`http://localhost:${serverPort}/health`, { signal: AbortSignal.timeout(5000) });
+          if (res.ok) {
+            console.log(chalk.green('  ✓ niuma-server 已后台启动'));
+          } else {
+            throw new Error(`HTTP ${res.status}`);
+          }
+        } catch (err) {
+          console.log(chalk.yellow(`  ⚠ 自动启动失败（${err.message}），请手动运行：niuma server start`));
+        }
+      }
+    }
+    console.log();
 
 async function deployServer({ serverPath, serverPort, emailAnswers, update }) {
   const repoUrl = 'https://github.com/parksben/niuma-server.git';
