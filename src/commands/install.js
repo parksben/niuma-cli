@@ -64,6 +64,14 @@ function getLocalIP() {
   return 'localhost';
 }
 
+function isPrivateIP(ip) {
+  return /^10\./.test(ip) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
+    /^192\.168\./.test(ip) ||
+    ip === 'localhost' ||
+    ip === '127.0.0.1';
+}
+
 export const installCommand = new Command('install')
   .description('交互式安装向导')
   .option('--openclaw-path <path>', '指定 OpenClaw 安装路径（多实例时使用）')
@@ -398,6 +406,10 @@ export const installCommand = new Command('install')
     }
     console.log(chalk.bold('─────────────────────────────────────'));
     console.log(chalk.cyan(`\n📱 在 App 中填入服务地址：${chalk.bold(serverUrl)}\n`));
+    if (!setupHttps && isPrivateIP(localIP)) {
+      console.log(chalk.yellow('  ⚠  检测到内网地址，请确认手机和此电脑连接的是同一个 Wi-Fi / 局域网'));
+      console.log(chalk.yellow('     如需从外网访问，请配置端口映射或启用 HTTPS + 公网域名\n'));
+    }
     console.log(chalk.gray('  管理命令：niuma server status / start / stop / logs\n'));
   });
 
