@@ -47,16 +47,20 @@ fi
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+TMP_TAR="$TMP_DIR/niuma-cli.tar.gz"
+
+echo "正在下载 niuma-cli（来自 GitHub）..."
 if command -v curl &> /dev/null; then
-  curl -fsSL --progress-bar "$ARCHIVE_URL" | tar -xz -C "$TMP_DIR" --strip-components=1
-  echo -e "${GREEN}✓ 下载完成${NC}"
+  curl -L --progress-bar "$ARCHIVE_URL" -o "$TMP_TAR"
 elif command -v wget &> /dev/null; then
-  wget --progress=bar:force -O- "$ARCHIVE_URL" 2>&1 | tar -xz -C "$TMP_DIR" --strip-components=1
-  echo -e "${GREEN}✓ 下载完成${NC}"
+  wget --show-progress -q "$ARCHIVE_URL" -O "$TMP_TAR"
 else
   echo -e "${RED}✗ 需要 curl 或 wget${NC}"
   exit 1
 fi
+echo -e "${GREEN}✓ 下载完成，正在解压...${NC}"
+tar -xz -C "$TMP_DIR" --strip-components=1 -f "$TMP_TAR"
+rm -f "$TMP_TAR"
 
 # 安装依赖（跳过 npm 缓存，确保拉取最新）
 echo "安装依赖..."
