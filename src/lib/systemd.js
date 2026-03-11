@@ -65,11 +65,23 @@ const PID_FILE = join(os.homedir(), '.niuma', 'server.pid');
 const LOG_FILE = join(os.homedir(), '.niuma', 'server.log');
 
 function resolveServerPath(config) {
-  const raw = config.server?.path || join(os.homedir(), 'niuma-server');
+  let raw = config.server?.path || '';
+
+  // 过滤掉已知的旧版错误路径，回退到正确默认值
+  const isStale = !raw
+    || raw.startsWith('/opt/')
+    || raw.startsWith('/root/')
+    || raw.includes('/~/');  // 处理 /Users/xxx/~/niuma-server 这种双重错误
+
+  if (isStale) {
+    raw = join(os.homedir(), 'niuma-server');
+  }
+
   // 展开 ~ 前缀
   if (raw.startsWith('~/') || raw === '~') {
     return raw.replace(/^~/, os.homedir());
   }
+
   return raw;
 }
 
