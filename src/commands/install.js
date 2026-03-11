@@ -66,7 +66,8 @@ function getLocalIP() {
 
 export const installCommand = new Command('install')
   .description('交互式安装向导')
-  .action(async () => {
+  .option('--openclaw-path <path>', '指定 OpenClaw 安装路径（多实例时使用）')
+  .action(async (options) => {
     console.log(chalk.bold.cyan('\n欢迎使用牛马 (niuma) 安装向导 🐂🐴\n'));
 
     const config = loadConfig();
@@ -75,14 +76,48 @@ export const installCommand = new Command('install')
     // Step 1: 检测 OpenClaw
     // ─────────────────────────────────────────────
     console.log(chalk.bold('Step 1/5  检测 OpenClaw'));
-    const s1 = ora('正在检测 OpenClaw...').start();
-    const existing = await detectOpenClaw();
-    if (!existing) {
-      s1.fail('未检测到 OpenClaw');
-      console.error(chalk.red('\n❌ 未检测到 OpenClaw，请先安装：https://openclaw.ai\n'));
+
+    let openclawPath = options.openclawPath || null;
+
+    if (!openclawPath) {
+      // 先自动检测
+      const s1 = ora('正在自动检测 OpenClaw...').start();
+      const detected = await detectOpenClaw();
+      s1.stop();
+
+      if (detected) {
+        // 自动找到，确认或让用户覆盖
+        const { useDetected } = await inquirer.prompt([{
+          type: 'confirm',
+          name: 'useDetected',
+          message: `检测到 OpenClaw（${detected}），是否使用此实例？`,
+          default: true,
+        }]);
+        if (useDetected) {
+          openclawPath = detected;
+        }
+      }
+
+      if (!openclawPath) {
+        // 没检测到，或用户选择不使用，手动输入
+        const { manualPath } = await inquirer.prompt([{
+          type: 'input',
+          name: 'manualPath',
+          message: '请输入 OpenClaw 安装路径（如 /root/.openclaw 或 /opt/my-openclaw）：',
+          validate: v => (v.trim().length > 0) || '路径不能为空',
+        }]);
+        openclawPath = manualPath.trim();
+      }
+    }
+
+    // 验证路径有效性
+    const { existsSync } = await import('fs');
+    if (!existsSync(openclawPath)) {
+      console.error(chalk.red(`\n❌ 路径不存在：${openclawPath}\n请先安装 OpenClaw：https://openclaw.ai\n`));
       process.exit(1);
     }
-    s1.succeed(chalk.green(`检测到 OpenClaw（${existing}）`));
+    console.log(chalk.green(`✔ 使用 OpenClaw（${openclawPath}）`));
+    process.env.OPENCLAW_HOME = openclawPath;
 
     const s1b = ora('正在连接 OpenClaw Gateway...').start();
     const gatewayOk = await checkGateway();
@@ -235,7 +270,7 @@ export const installCommand = new Command('install')
     // 保存配置
     saveConfig({
       ...config,
-      openclawPath: existing,
+      openclawPath,
       email: {
         address: emailAnswers.email,
         smtpToken: emailAnswers.smtpToken,
@@ -249,8 +284,34 @@ export const installCommand = new Command('install')
     });
 
     const localIP = getLocalIP();
-    console.log(chalk.bold.green(`\n✅ niuma-server 运行在 http://${localIP}:${serverPort}`));
-    console.log(chalk.cyan(`📱 在 App 中填入此地址即可开始使用\n`));
+    const serverUrl = `http://${localIP}:${serverPort}`;
+
+    // 读取 .env 中的 JWT_SECRET 用于展示
+    let jwtSecret = '（见 ' + serverPath + '/.env）';
+    try {
+      const envContent = readFileSync(join(serverPath, '.env'), 'utf8');
+      const m = envContent.match(/JWT_SECRET=(.+)/);
+      if (m) jwtSecret = m[1].trim();
+    } catch {}
+
+    console.log(chalk.bold.green('\n✅ 安装完成！\n'));
+    console.log(chalk.bold('─────────────────────────────────────'));
+    console.log(chalk.bold('  牛马 (niuma) 服务器配置信息'));
+    console.log(chalk.bold('─────────────────────────────────────'));
+    console.log(`  ${chalk.gray('服务地址：')} ${chalk.cyan.bold(serverUrl)}`);
+    console.log(`  ${chalk.gray('安装路径：')} ${serverPath}`);
+    console.log(`  ${chalk.gray('服务端口：')} ${serverPort}`);
+    console.log(`  ${chalk.gray('JWT 密钥：')} ${chalk.yellow(jwtSecret)}`);
+    console.log(`  ${chalk.gray('SMTP 邮箱：')} ${emailAnswers.email}`);
+    console.log(`  ${chalk.gray('OpenClaw：')} ${openclawPath}`);
+    console.log(chalk.bold('─────────────────────────────────────'));
+    console.log(chalk.bold('\n  已创建的 Agent 套件：'));
+    for (const agent of AGENTS) {
+      console.log(`  ${agent.emoji}  ${chalk.bold(agent.name)} (${chalk.gray(agent.id)})  —  ${agent.description}`);
+    }
+    console.log(chalk.bold('─────────────────────────────────────'));
+    console.log(chalk.cyan(`\n📱 在 App 中填入服务地址：${chalk.bold(serverUrl)}\n`));
+    console.log(chalk.gray('  管理命令：niuma server status / start / stop / logs\n'));
   });
 
 async function deployServer({ serverPath, serverPort, emailAnswers, update }) {
