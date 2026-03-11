@@ -527,12 +527,18 @@ async function deployServer({ serverPath, serverPort, emailAnswers, update }) {
     execSync('systemctl stop niuma-server', { stdio: 'pipe' });
     stopSpinner.succeed('旧服务已停止');
   } catch {
-    // systemd 不可用或服务未注册，尝试 kill 端口占用进程
+    // systemd 不可用（macOS 等），按端口 kill 占用进程
     try {
-      const pid = execSync(`lsof -ti tcp:${serverPort} 2>/dev/null || fuser ${serverPort}/tcp 2>/dev/null`, { stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
-      if (pid) {
-        execSync(`kill -9 ${pid}`, { stdio: 'pipe' });
-        stopSpinner.succeed(`旧进程（PID ${pid}）已终止`);
+      const out = execSync(
+        `lsof -ti tcp:${serverPort} 2>/dev/null || fuser ${serverPort}/tcp 2>/dev/null || true`,
+        { stdio: ['pipe', 'pipe', 'pipe'] }
+      ).toString().trim();
+      const pids = out.split(/\s+/).filter(p => /^\d+$/.test(p));
+      if (pids.length > 0) {
+        for (const pid of pids) {
+          try { execSync(`kill -9 ${pid}`, { stdio: 'pipe' }); } catch {}
+        }
+        stopSpinner.succeed(`旧进程（PID ${pids.join(', ')}）已终止`);
       } else {
         stopSpinner.succeed('无旧进程，继续安装');
       }
@@ -540,6 +546,8 @@ async function deployServer({ serverPath, serverPort, emailAnswers, update }) {
       stopSpinner.succeed('无旧进程，继续安装');
     }
   }
+  // 等待端口释放
+  await new Promise(r => setTimeout(r, 1000));
 
   // Clone / pull
   const cloneSpinner = ora(update ? '正在更新 niuma-server...' : '正在克隆 niuma-server...').start();
