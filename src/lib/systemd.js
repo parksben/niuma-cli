@@ -64,8 +64,17 @@ import os from 'os';
 const PID_FILE = join(os.homedir(), '.niuma', 'server.pid');
 const LOG_FILE = join(os.homedir(), '.niuma', 'server.log');
 
+function resolveServerPath(config) {
+  const raw = config.server?.path || join(os.homedir(), 'niuma-server');
+  // 展开 ~ 前缀
+  if (raw.startsWith('~/') || raw === '~') {
+    return raw.replace(/^~/, os.homedir());
+  }
+  return raw;
+}
+
 function nodeStart(config) {
-  const serverPath = config.server?.path || join(os.homedir(), 'niuma-server');
+  const serverPath = resolveServerPath(config);
   const port = config.server?.port || 3002;
   const entry = join(serverPath, 'index.js');
   const envFile = join(serverPath, '.env');

@@ -427,7 +427,7 @@ export const installCommand = new Command('install')
       },
       server: {
         port: serverPort,
-        path: serverPath,
+        path: serverPath.startsWith('~/') ? serverPath.replace(/^~/, homedir()) : serverPath,
         url: serverUrl,
       },
     });
