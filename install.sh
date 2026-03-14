@@ -53,3 +53,22 @@ echo ""
 echo "✅ 安装完成！"
 echo "启动命令：niuma start"
 echo "访问地址：http://localhost:$PORT"
+
+# 输出服务器连接二维码
+echo ""
+echo "正在生成连接二维码..."
+cd "$INSTALL_DIR/server"
+node -e "
+const QRCode = require('qrcode-terminal');
+const payload = Buffer.from(JSON.stringify({
+  v: 1,
+  type: 'niuma-connect',
+  server: process.env.SERVER_URL || 'http://localhost:' + (process.env.PORT || $PORT),
+  name: process.env.SERVER_NAME || '我的牛马服务器',
+  ts: Date.now()
+})).toString('base64');
+QRCode.generate(payload, {small: true});
+console.log('');
+console.log('用牛马 App 扫描上方二维码完成连接');
+console.log('或访问 http://localhost:$PORT/connect 获取二维码');
+" 2>/dev/null || echo "访问 http://localhost:${PORT}/connect 获取连接二维码"
