@@ -88,7 +88,7 @@ get_latest_version() {
 # ── 获取文件大小 ──────────────────────────
 get_file_size() {
   curl -fsSIL --connect-timeout 10 "$1" 2>/dev/null \
-    | grep -i '^content-length:' | tail -1 | tr -d '\r' | awk '{print $2}'
+    | tr -d '\r' | grep -i '^content-length:' | awk '{print $2}' | sort -rn | head -1
 }
 
 # ── 解析重定向获取真实 URL ────────────────
