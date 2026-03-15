@@ -86,31 +86,32 @@ function resolveServerPath(config) {
 }
 
 function nodeStart(config) {
-  const serverPath = resolveServerPath(config);
   const port = config.server?.port || 3002;
-  const entry = join(serverPath, 'index.js');
-  const envFile = join(serverPath, '.env');
+  const binDir = join(os.homedir(), '.niuma', 'bin');
+  const serverBin = join(binDir, 'niuma-server');
+  const niumaHome = join(os.homedir(), '.niuma');
+  const configFile = join(niumaHome, 'config.json');
 
-  // 读取 .env 文件注入环境变量
-  let dotenv = {};
-  if (existsSync(envFile)) {
-    const lines = readFileSync(envFile, 'utf8').split('\n');
-    for (const line of lines) {
-      const m = line.match(/^([^#=]+)=(.*)$/);
-      if (m) dotenv[m[1].trim()] = m[2].trim();
-    }
+  // 读取 config.json 注入环境变量
+  let envVars = {};
+  if (existsSync(configFile)) {
+    try {
+      const cfg = JSON.parse(readFileSync(configFile, 'utf8'));
+      if (cfg.OPENCLAW_GATEWAY_URL) envVars.OPENCLAW_GATEWAY_URL = cfg.OPENCLAW_GATEWAY_URL;
+      if (cfg.OPENCLAW_GATEWAY_TOKEN) envVars.OPENCLAW_GATEWAY_TOKEN = cfg.OPENCLAW_GATEWAY_TOKEN;
+      if (cfg.PORT) envVars.PORT = String(cfg.PORT);
+    } catch {}
   }
 
   // 确保日志目录存在
-  const dir = join(os.homedir(), '.niuma');
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  if (!existsSync(niumaHome)) mkdirSync(niumaHome, { recursive: true });
 
   const out = openSync(LOG_FILE, 'a');
-  const proc = spawn('node', [entry], {
+  const proc = spawn(serverBin, [], {
     detached: true,
     stdio: ['ignore', out, out],
-    env: { ...process.env, ...dotenv, PORT: String(port) },
-    cwd: serverPath,
+    env: { ...process.env, ...envVars, PORT: String(port) },
+    cwd: niumaHome,
   });
   proc.unref();
   writeFileSync(PID_FILE, String(proc.pid), 'utf8');
