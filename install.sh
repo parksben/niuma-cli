@@ -299,6 +299,66 @@ CONF
   fi
 }
 
+# ── 下载桌面客户端 ────────────────────────
+download_desktop_app() {
+  echo ""
+  echo -e "${BOLD}下载桌面客户端${RESET}"
+  echo "──────────────────────────────────────"
+
+  local app_file=""
+  local app_url=""
+  local download_dir="$HOME/Downloads"
+  mkdir -p "$download_dir"
+
+  case "$PLATFORM" in
+    macos-arm64|macos-x64)
+      app_file="niuma-desktop_${LATEST#v}_aarch64.dmg"
+      [ "$PLATFORM" = "macos-x64" ] && app_file="niuma-desktop_${LATEST#v}_x64.dmg"
+      ;;
+    linux-x64)
+      app_file="niuma-desktop_${LATEST#v}_amd64.AppImage"
+      ;;
+    linux-arm64)
+      app_file="niuma-desktop_${LATEST#v}_aarch64.AppImage"
+      ;;
+    win-x64)
+      app_file="niuma-desktop_${LATEST#v}_x64-setup.exe"
+      ;;
+  esac
+
+  if [ -z "$app_file" ]; then
+    echo -e "  ${DIM}暂无此平台的桌面客户端${RESET}"
+    return
+  fi
+
+  app_url="https://github.com/${NIUMA_REPO}/releases/download/${LATEST}/${app_file}"
+  local dest="${download_dir}/${app_file}"
+
+  echo -e "  正在下载 ${BOLD}${app_file}${RESET} ..."
+
+  # 获取文件大小
+  local app_size
+  app_size=$(get_file_size "$app_url")
+  app_size=${app_size:-0}
+
+  if ! download_one "$app_url" "$dest" "桌面客户端" "$app_size" "⬇"; then
+    echo ""
+    echo -e "  ${YELLOW}桌面客户端下载失败（可能尚未发布此版本），手动下载：${RESET}"
+    echo -e "  ${CYAN}https://github.com/${NIUMA_REPO}/releases${RESET}"
+    return
+  fi
+
+  echo ""
+  echo -e "  ${GREEN}✓${RESET} 已下载到: ${BOLD}${dest}${RESET}"
+
+  # 打开下载目录
+  case "$(uname -s)" in
+    Darwin) open "$download_dir" 2>/dev/null ;;
+    Linux)  xdg-open "$download_dir" 2>/dev/null ;;
+    MINGW*|MSYS*|CYGWIN*) explorer.exe "$download_dir" 2>/dev/null ;;
+  esac
+}
+
 # ── 配置 PATH ─────────────────────────────
 setup_path() {
   local shell_rc=""
@@ -327,6 +387,9 @@ mkdir -p "$BIN_DIR"
 run_downloads "$BASE_URL"
 init_config
 setup_path
+download_desktop_app
+
+RELEASES_URL="https://github.com/${NIUMA_REPO}/releases/tag/${LATEST}"
 
 echo ""
 echo -e "${GREEN}${BOLD}✅ 安装完成！${RESET}"
@@ -341,12 +404,16 @@ echo ""
 echo -e "  ${BOLD}1.${RESET} 启动服务"
 echo -e "     ${CYAN}niuma server start${RESET}"
 echo ""
-echo -e "  ${BOLD}2.${RESET} 打开浏览器访问"
-echo -e "     ${CYAN}http://localhost:3000${RESET}"
+echo -e "  ${BOLD}2.${RESET} 安装桌面客户端"
+echo -e "     安装包已下载到 ~/Downloads，双击即可安装"
 echo ""
-echo -e "  ${BOLD}3.${RESET} 在「设置」页面配置 OpenClaw 连接"
-echo -e "     ${DIM}需要 Gateway Token，在 OpenClaw 服务器上运行:${RESET}"
-echo -e "     ${CYAN}openclaw token${RESET}"
+echo -e "  ${BOLD}3.${RESET} 打开客户端，在首次配置页面填入 OpenClaw Token"
+echo -e "     ${DIM}在 OpenClaw 服务器上运行:${RESET} ${CYAN}openclaw token${RESET}"
+echo ""
+echo -e "${BOLD}下载更多客户端${RESET}"
+echo "──────────────────────────────────────"
+echo -e "  📱 Android APK:  ${CYAN}${RELEASES_URL}${RESET}"
+echo -e "  🖥  桌面客户端:   ${CYAN}${RELEASES_URL}${RESET}"
 echo ""
 echo -e "${BOLD}常用命令${RESET}"
 echo "──────────────────────────────────────"
@@ -354,6 +421,4 @@ echo -e "  ${CYAN}niuma server start${RESET}     启动服务"
 echo -e "  ${CYAN}niuma server stop${RESET}      停止服务"
 echo -e "  ${CYAN}niuma server status${RESET}    查看状态"
 echo -e "  ${CYAN}niuma --help${RESET}           查看帮助"
-echo ""
-echo -e "${DIM}手机端：下载牛马 App → 扫码连接服务${RESET}"
 echo "──────────────────────────────────────"
