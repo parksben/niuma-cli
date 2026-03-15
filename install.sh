@@ -12,9 +12,11 @@ BIN_DIR="$INSTALL_DIR/bin"
 CONFIG_FILE="$INSTALL_DIR/config.json"
 
 BOLD="\033[1m"
+DIM="\033[2m"
 GREEN="\033[32m"
 YELLOW="\033[33m"
 RED="\033[31m"
+CYAN="\033[36m"
 RESET="\033[0m"
 
 echo ""
@@ -59,43 +61,119 @@ detect_platform() {
 
 # ── 获取最新版本 ──────────────────────────
 get_latest_version() {
-  echo "获取最新版本..."
-  LATEST=$(curl -fsSL "https://api.github.com/repos/${NIUMA_REPO}/releases/latest" \
+  echo -n "获取最新版本..."
+  LATEST=$(curl -fsSL --connect-timeout 10 "https://api.github.com/repos/${NIUMA_REPO}/releases/latest" \
     | grep '"tag_name"' | cut -d'"' -f4)
   if [ -z "$LATEST" ]; then
+    echo -e " ${RED}✗${RESET}"
     echo -e "${RED}无法获取最新版本，请检查网络连接${RESET}"
     exit 1
   fi
-  echo -e "最新版本: ${BOLD}${LATEST}${RESET}"
+  echo -e " ${GREEN}${LATEST}${RESET}"
 }
 
-# ── 下载文件 ──────────────────────────────
-download_file() {
+# ── 进度条下载 ────────────────────────────
+# 使用 curl 内置进度条（#号风格），紧凑美观
+download_with_progress() {
   local url="$1"
   local dest="$2"
-  local name="$3"
+  local label="$3"
+  local logfile="$4"
 
-  echo -n "下载 ${name}..."
-
-  # 先尝试直连 GitHub（海外/macOS 用户通常无障碍）
-  if curl -fsSL --connect-timeout 10 --max-time 120 -o "$dest" "$url" 2>/dev/null; then
-    chmod +x "$dest"
-    echo -e " ${GREEN}✓${RESET}"
-    return
+  # 先尝试直连 GitHub
+  if curl -fL --connect-timeout 10 --max-time 300 --progress-bar -o "$dest" "$url" 2>>"$logfile"; then
+    return 0
   fi
 
-  # 直连失败，尝试 ghproxy 镜像（国内加速）
-  echo -n " (直连超时，尝试镜像)..."
-  PROXY_URL="https://ghproxy.net/${url}"
-  if curl -fsSL --connect-timeout 10 --max-time 120 -o "$dest" "$PROXY_URL" 2>/dev/null; then
-    chmod +x "$dest"
-    echo -e " ${GREEN}✓${RESET}"
-    return
+  # 直连失败，尝试 ghproxy 镜像
+  local proxy_url="https://ghproxy.net/${url}"
+  if curl -fL --connect-timeout 10 --max-time 300 --progress-bar -o "$dest" "$proxy_url" 2>>"$logfile"; then
+    return 0
   fi
 
-  echo -e " ${RED}✗ 下载失败${RESET}"
-  echo -e "${RED}请手动下载: ${url}${RESET}"
-  exit 1
+  return 1
+}
+
+# ── 并发下载 ──────────────────────────────
+parallel_download() {
+  local base_url="$1"
+  local tmpdir
+  tmpdir=$(mktemp -d)
+
+  local cli_dest="${BIN_DIR}/niuma${EXE_SUFFIX:-}"
+  local srv_dest="${BIN_DIR}/niuma-server${EXE_SUFFIX:-}"
+  local cli_url="${base_url}/${CLI_BINARY}"
+  local srv_url="${base_url}/${SERVER_BINARY}"
+
+  echo ""
+  echo -e "${BOLD}下载组件${RESET} ${DIM}(并发下载中...)${RESET}"
+  echo "──────────────────────────────────────"
+
+  # 后台启动两个下载任务
+  (
+    echo -e "  ${CYAN}[1/2]${RESET} niuma CLI"
+    if download_with_progress "$cli_url" "$cli_dest" "CLI" "$tmpdir/cli.log"; then
+      chmod +x "$cli_dest"
+      echo -e "  ${GREEN}[1/2] niuma CLI ✓${RESET}"
+    else
+      echo -e "  ${RED}[1/2] niuma CLI ✗${RESET}" 
+      echo "FAIL" > "$tmpdir/cli.fail"
+    fi
+  ) &
+  local pid_cli=$!
+
+  (
+    echo -e "  ${CYAN}[2/2]${RESET} niuma Server"
+    if download_with_progress "$srv_url" "$srv_dest" "Server" "$tmpdir/srv.log"; then
+      chmod +x "$srv_dest"
+      echo -e "  ${GREEN}[2/2] niuma Server ✓${RESET}"
+    else
+      echo -e "  ${RED}[2/2] niuma Server ✗${RESET}"
+      echo "FAIL" > "$tmpdir/srv.fail"
+    fi
+  ) &
+  local pid_srv=$!
+
+  # 等待两个任务完成
+  wait $pid_cli $pid_srv 2>/dev/null
+
+  echo ""
+
+  # 检查结果
+  if [ -f "$tmpdir/cli.fail" ] || [ -f "$tmpdir/srv.fail" ]; then
+    echo -e "${RED}部分下载失败，请检查网络后重试${RESET}"
+    [ -f "$tmpdir/cli.fail" ] && echo -e "${RED}  CLI 下载地址:    ${cli_url}${RESET}"
+    [ -f "$tmpdir/srv.fail" ] && echo -e "${RED}  Server 下载地址: ${srv_url}${RESET}"
+    rm -rf "$tmpdir"
+    exit 1
+  fi
+
+  rm -rf "$tmpdir"
+
+  # 验证文件大小
+  local cli_size srv_size
+  cli_size=$(wc -c < "$cli_dest" 2>/dev/null || echo 0)
+  srv_size=$(wc -c < "$srv_dest" 2>/dev/null || echo 0)
+
+  if [ "$cli_size" -lt 1000 ] || [ "$srv_size" -lt 1000 ]; then
+    echo -e "${RED}下载文件异常（文件过小），可能是网络问题${RESET}"
+    exit 1
+  fi
+
+  # 显示文件大小
+  format_size() {
+    local bytes=$1
+    if [ "$bytes" -gt 1048576 ]; then
+      echo "$(awk "BEGIN{printf \"%.1f\", $bytes/1048576}")MB"
+    elif [ "$bytes" -gt 1024 ]; then
+      echo "$(awk "BEGIN{printf \"%.0f\", $bytes/1024}")KB"
+    else
+      echo "${bytes}B"
+    fi
+  }
+
+  echo -e "  niuma CLI:    $(format_size "$cli_size")"
+  echo -e "  niuma Server: $(format_size "$srv_size")"
 }
 
 # ── 主流程 ────────────────────────────────
@@ -106,17 +184,8 @@ BASE_URL="https://github.com/${NIUMA_REPO}/releases/download/${LATEST}"
 
 mkdir -p "$BIN_DIR"
 
-# 下载 CLI 二进制
-download_file \
-  "${BASE_URL}/${CLI_BINARY}" \
-  "${BIN_DIR}/niuma${EXE_SUFFIX:-}" \
-  "niuma CLI"
-
-# 下载 Server 二进制
-download_file \
-  "${BASE_URL}/${SERVER_BINARY}" \
-  "${BIN_DIR}/niuma-server${EXE_SUFFIX:-}" \
-  "niuma server"
+# 并发下载两个二进制
+parallel_download "$BASE_URL"
 
 # ── 配置向导 ──────────────────────────────
 echo ""
