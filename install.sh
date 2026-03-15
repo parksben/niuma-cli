@@ -4,14 +4,13 @@ set -e
 # ─────────────────────────────────────────
 #  牛马（Niuma）安装脚本
 #  从 github.com/parksben/niuma/releases 下载对应平台二进制
-#  支持分片并发下载 + 实时进度条
 # ─────────────────────────────────────────
 
 NIUMA_REPO="parksben/niuma"
 INSTALL_DIR="$HOME/.niuma"
 BIN_DIR="$INSTALL_DIR/bin"
 CONFIG_FILE="$INSTALL_DIR/config.json"
-CHUNKS=4
+CHUNKS=8
 
 BOLD='\033[1m'
 DIM='\033[2m'
@@ -258,7 +257,6 @@ run_downloads() {
   srv_size=${srv_size:-0}
   local total_all=$(( cli_size + srv_size ))
   echo -e " 共 ${BOLD}$(format_size $total_all)${RESET} (CLI $(format_size $cli_size) + Server $(format_size $srv_size))"
-  echo -e "  ${DIM}${CHUNKS} 分片并发下载${RESET}"
   echo ""
 
   # 顺序下载两个文件（各自内部分片并发），避免终端输出交错
