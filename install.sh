@@ -285,41 +285,18 @@ run_downloads() {
   echo ""
 }
 
-# ── 交互式配置（兼容 curl | bash） ───────
-run_config() {
-  echo ""
-  echo -e "${BOLD}配置向导${RESET}"
-  echo "──────────────────────────────────────"
-
-  # curl | bash 时 stdin 是管道，必须从 /dev/tty 读取用户输入
-  if [ ! -t 0 ]; then
-    exec < /dev/tty
-  fi
-
-  local gw_url gw_token port
-
-  printf "OpenClaw Gateway URL [ws://localhost:18789]: "
-  read -r gw_url
-  gw_url=${gw_url:-ws://localhost:18789}
-
-  printf "OpenClaw Gateway Token: "
-  stty -echo 2>/dev/null || true
-  read -r gw_token
-  stty echo 2>/dev/null || true
-  echo ""
-
-  printf "服务端口 [3000]: "
-  read -r port
-  port=${port:-3000}
-
+# ── 生成默认配置 ──────────────────────────
+init_config() {
   mkdir -p "$INSTALL_DIR"
-  cat > "$CONFIG_FILE" <<CONF
+  if [ ! -f "$CONFIG_FILE" ]; then
+    cat > "$CONFIG_FILE" <<CONF
 {
-  "OPENCLAW_GATEWAY_URL": "${gw_url}",
-  "OPENCLAW_GATEWAY_TOKEN": "${gw_token}",
-  "PORT": ${port}
+  "OPENCLAW_GATEWAY_URL": "ws://localhost:18789",
+  "OPENCLAW_GATEWAY_TOKEN": "",
+  "PORT": 3000
 }
 CONF
+  fi
 }
 
 # ── 配置 PATH ─────────────────────────────
@@ -348,7 +325,7 @@ BASE_URL="https://github.com/${NIUMA_REPO}/releases/download/${LATEST}"
 mkdir -p "$BIN_DIR"
 
 run_downloads "$BASE_URL"
-run_config
+init_config
 setup_path
 
 echo ""
@@ -358,8 +335,9 @@ echo -e "  版本: ${BOLD}${LATEST}${RESET}"
 echo -e "  CLI:  ${BIN_DIR}/niuma"
 echo -e "  服务: ${BIN_DIR}/niuma-server"
 echo ""
-echo -e "启动服务端："
+echo -e "下一步："
 echo -e "  ${BOLD}niuma server start${RESET}"
 echo ""
-echo -e "App 扫码连接后即可使用 🚀"
+echo -e "  服务启动后打开 ${BOLD}http://localhost:3000${RESET}"
+echo -e "  在设置页面配置 OpenClaw 连接信息即可 🚀"
 echo "──────────────────────────────────────"
