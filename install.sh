@@ -87,8 +87,17 @@ get_latest_version() {
 
 # ── 获取文件大小 ──────────────────────────
 get_file_size() {
-  curl -fsSIL --connect-timeout 10 "$1" 2>/dev/null \
-    | tr -d '\r' | grep -i '^content-length:' | awk '{print $2}' | sort -rn | head -1
+  # Use Range request to get total size from content-range header
+  # More reliable than content-length across redirects (esp. macOS curl)
+  local size
+  size=$(curl -fsSI -r 0-0 -L --connect-timeout 10 "$1" 2>/dev/null \
+    | tr -d '\r' | grep -i 'content-range' | grep -oE '[0-9]+$')
+  if [ -z "$size" ] || [ "$size" = "0" ]; then
+    # Fallback: content-length
+    size=$(curl -fsSIL --connect-timeout 10 "$1" 2>/dev/null \
+      | tr -d '\r' | grep -i '^content-length:' | awk '{print $2}' | sort -rn | head -1)
+  fi
+  echo "${size:-0}"
 }
 
 # ── 解析重定向获取真实 URL ────────────────
