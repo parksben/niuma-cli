@@ -77,16 +77,25 @@ download_file() {
 
   echo -n "下载 ${name}..."
 
-  # 优先尝试 ghproxy（国内加速）
-  PROXY_URL="https://ghproxy.net/${url}"
-  if curl -fsSL --connect-timeout 5 -o /dev/null "$PROXY_URL" 2>/dev/null; then
-    curl -fsSL "$PROXY_URL" -o "$dest"
-  else
-    curl -fsSL "$url" -o "$dest"
+  # 先尝试直连 GitHub（海外/macOS 用户通常无障碍）
+  if curl -fsSL --connect-timeout 10 --max-time 120 -o "$dest" "$url" 2>/dev/null; then
+    chmod +x "$dest"
+    echo -e " ${GREEN}✓${RESET}"
+    return
   fi
 
-  chmod +x "$dest"
-  echo -e " ${GREEN}✓${RESET}"
+  # 直连失败，尝试 ghproxy 镜像（国内加速）
+  echo -n " (直连超时，尝试镜像)..."
+  PROXY_URL="https://ghproxy.net/${url}"
+  if curl -fsSL --connect-timeout 10 --max-time 120 -o "$dest" "$PROXY_URL" 2>/dev/null; then
+    chmod +x "$dest"
+    echo -e " ${GREEN}✓${RESET}"
+    return
+  fi
+
+  echo -e " ${RED}✗ 下载失败${RESET}"
+  echo -e "${RED}请手动下载: ${url}${RESET}"
+  exit 1
 }
 
 # ── 主流程 ────────────────────────────────
