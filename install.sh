@@ -87,16 +87,27 @@ get_latest_version() {
 
 # ── 获取文件大小 ──────────────────────────
 get_file_size() {
-  # Use Range request to get total size from content-range header
-  # More reliable than content-length across redirects (esp. macOS curl)
+  local url="$1"
+  local filename="$2"  # optional: asset filename for API fallback
   local size
-  size=$(curl -fsSI -r 0-0 -L --connect-timeout 10 "$1" 2>/dev/null \
+
+  # Method 1: Range request → content-range header
+  size=$(curl -fsSI -r 0-0 -L --connect-timeout 10 "$url" 2>/dev/null \
     | tr -d '\r' | grep -i 'content-range' | grep -oE '[0-9]+$')
+
+  # Method 2: content-length (follow redirects, take largest)
   if [ -z "$size" ] || [ "$size" = "0" ]; then
-    # Fallback: content-length
-    size=$(curl -fsSIL --connect-timeout 10 "$1" 2>/dev/null \
+    size=$(curl -fsSIL --connect-timeout 10 "$url" 2>/dev/null \
       | tr -d '\r' | grep -i '^content-length:' | awk '{print $2}' | sort -rn | head -1)
   fi
+
+  # Method 3: GitHub API fallback (most reliable)
+  if { [ -z "$size" ] || [ "$size" = "0" ]; } && [ -n "$filename" ]; then
+    size=$(curl -fsSL --connect-timeout 10 \
+      "https://api.github.com/repos/${NIUMA_REPO}/releases/tags/${LATEST}" 2>/dev/null \
+      | grep -A3 "\"name\": \"${filename}\"" | grep '"size"' | grep -oE '[0-9]+')
+  fi
+
   echo "${size:-0}"
 }
 
@@ -260,8 +271,8 @@ run_downloads() {
   # 获取文件大小
   echo -n "  获取文件信息..."
   local cli_size srv_size
-  cli_size=$(get_file_size "$cli_url")
-  srv_size=$(get_file_size "$srv_url")
+  cli_size=$(get_file_size "$cli_url" "$CLI_BINARY")
+  srv_size=$(get_file_size "$srv_url" "$SERVER_BINARY")
   cli_size=${cli_size:-0}
   srv_size=${srv_size:-0}
   local total_all=$(( cli_size + srv_size ))
@@ -345,7 +356,7 @@ download_desktop_app() {
 
   # 获取文件大小
   local app_size
-  app_size=$(get_file_size "$app_url")
+  app_size=$(get_file_size "$app_url" "$app_file")
   app_size=${app_size:-0}
 
   if ! download_one "$app_url" "$dest" "桌面客户端" "$app_size" "⬇"; then
