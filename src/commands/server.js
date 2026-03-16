@@ -21,7 +21,7 @@ serverCommand
     const spinner = ora('正在启动 niuma-server...').start();
     try {
       await startServer(config);
-      spinner.succeed(chalk.green(`niuma-server 已启动，监听端口 ${config.server?.port || 3002}`));
+      spinner.succeed(chalk.green(`niuma-server 已启动，监听端口 ${config.server?.port || 51700}`));
     } catch (err) {
       spinner.fail('启动失败');
       console.error(chalk.red(err.message));

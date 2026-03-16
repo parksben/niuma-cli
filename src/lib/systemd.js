@@ -86,7 +86,7 @@ function resolveServerPath(config) {
 }
 
 function nodeStart(config) {
-  const port = config.server?.port || 3002;
+  const port = config.server?.port || 51700;
   const binDir = join(os.homedir(), '.niuma', 'bin');
   const serverBin = join(binDir, 'niuma-server');
   const niumaHome = join(os.homedir(), '.niuma');

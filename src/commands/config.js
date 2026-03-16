@@ -38,7 +38,7 @@ export const configCommand = new Command('config')
         type: 'number',
         name: 'serverPort',
         message: 'niuma-server 端口：',
-        default: config.server?.port || 3002,
+        default: config.server?.port || 51700,
       },
     ]);
 
