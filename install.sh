@@ -264,16 +264,30 @@ run_downloads() {
   echo -e " 共 ${BOLD}$(format_size $total_all)${RESET} (CLI $(format_size $cli_size) + Server $(format_size $srv_size))"
   echo ""
 
-  # 顺序下载两个文件（各自内部分片并发），避免终端输出交错
-  if ! download_one "$cli_url" "$cli_dest" "niuma CLI" "$cli_size" "1/2"; then
-    echo -e "\n${RED}CLI 下载失败: ${cli_url}${RESET}"
-    exit 1
-  fi
-
-  if ! download_one "$srv_url" "$srv_dest" "niuma Server" "$srv_size" "2/2"; then
-    echo -e "\n${RED}Server 下载失败: ${srv_url}${RESET}"
-    exit 1
-  fi
+  # 顺序下载两个文件（各自内部分片并发），失败自动重试
+  local max_retries=3
+  local item
+  for item in "cli" "srv"; do
+    local _url _dest _label _size _idx
+    if [ "$item" = "cli" ]; then
+      _url="$cli_url"; _dest="$cli_dest"; _label="niuma CLI"; _size="$cli_size"; _idx="1/2"
+    else
+      _url="$srv_url"; _dest="$srv_dest"; _label="niuma Server"; _size="$srv_size"; _idx="2/2"
+    fi
+    local attempt=1
+    while true; do
+      if download_one "$_url" "$_dest" "$_label" "$_size" "$_idx"; then
+        break
+      fi
+      if [ "$attempt" -ge "$max_retries" ]; then
+        echo -e "\n${RED}${_label} 下载失败（已重试 ${max_retries} 次）: ${_url}${RESET}"
+        exit 1
+      fi
+      attempt=$(( attempt + 1 ))
+      echo -e "  ${YELLOW}↻ 重试 ${attempt}/${max_retries}...${RESET}"
+      sleep 2
+    done
+  done
 
   # 校验
   local actual_cli actual_srv
@@ -344,7 +358,18 @@ download_desktop_app() {
   app_size=$(get_file_size "$app_file")
   app_size=${app_size:-0}
 
-  if ! download_one "$app_url" "$dest" "桌面客户端" "$app_size" "⬇"; then
+  local app_attempt=1
+  local app_ok=false
+  while [ "$app_attempt" -le 3 ]; do
+    if download_one "$app_url" "$dest" "桌面客户端" "$app_size" "⬇"; then
+      app_ok=true
+      break
+    fi
+    app_attempt=$(( app_attempt + 1 ))
+    [ "$app_attempt" -le 3 ] && echo -e "  ${YELLOW}↻ 重试 ${app_attempt}/3...${RESET}" && sleep 2
+  done
+
+  if [ "$app_ok" = false ]; then
     echo ""
     echo -e "  ${YELLOW}桌面客户端下载失败（可能尚未发布此版本），手动下载：${RESET}"
     echo -e "  ${CYAN}https://github.com/${NIUMA_REPO}/releases${RESET}"
