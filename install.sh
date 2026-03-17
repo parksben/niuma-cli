@@ -95,7 +95,24 @@ get_file_size() {
   echo "${size:-0}"
 }
 
-# ── 下载单个文件（带进度条） ──────────────
+# ── GitHub 下载镜像列表（直连失败时自动切换） ──
+# 用户可通过 GITHUB_MIRROR 环境变量指定自有镜像，如:
+#   GITHUB_MIRROR=https://my-proxy.example.com curl ... | bash
+GITHUB_MIRRORS=(
+  ""                                          # 直连 (空 = 原始 URL)
+  "https://ghfast.top/"                       # ghfast 镜像
+  "https://gh-proxy.com/"                     # gh-proxy 镜像
+  "https://github.moeyy.xyz/"                 # moeyy 镜像
+)
+
+# 如果用户指定了自定义镜像，插入到最前面
+if [ -n "${GITHUB_MIRROR:-}" ]; then
+  # 确保以 / 结尾
+  GITHUB_MIRROR="${GITHUB_MIRROR%/}/"
+  GITHUB_MIRRORS=("$GITHUB_MIRROR" "${GITHUB_MIRRORS[@]}")
+fi
+
+# ── 下载单个文件（多镜像自动切换 + 进度条） ──
 download_one() {
   local url="$1"
   local dest="$2"
@@ -107,47 +124,74 @@ download_one() {
   tmpdir=$(mktemp -d)
   local tmpfile="${tmpdir}/download"
 
-  # 直接用 curl -L 跟随重定向，不做 HEAD 预请求
-  curl -fSL --connect-timeout 15 --max-time 600 --retry 2 \
-    -o "$tmpfile" "$url" </dev/null 2>/dev/null &
-  local pid=$!
+  for mirror in "${GITHUB_MIRRORS[@]}"; do
+    local try_url
+    if [ -z "$mirror" ]; then
+      try_url="$url"
+    else
+      # 将 https://github.com/... 替换为镜像前缀
+      try_url="${mirror}${url}"
+    fi
 
-  # 监控进度
-  while kill -0 "$pid" 2>/dev/null; do
-    sleep 0.5
-    local downloaded=0
-    if [ -f "$tmpfile" ]; then
-      downloaded=$(wc -c < "$tmpfile" 2>/dev/null || echo 0)
-      downloaded=$(echo "$downloaded" | tr -d ' ')
+    rm -f "$tmpfile"
+
+    # 下载（后台运行以显示进度）
+    curl -fSL --connect-timeout 10 --max-time 600 \
+      -o "$tmpfile" "$try_url" </dev/null 2>/dev/null &
+    local pid=$!
+
+    # 监控进度
+    while kill -0 "$pid" 2>/dev/null; do
+      sleep 0.5
+      local downloaded=0
+      if [ -f "$tmpfile" ]; then
+        downloaded=$(wc -c < "$tmpfile" 2>/dev/null || echo 0)
+        downloaded=$(echo "$downloaded" | tr -d ' ')
+      fi
+      local pct=0
+      if [ "${total:-0}" -gt 0 ]; then
+        pct=$(( downloaded * 100 / total ))
+      fi
+      [ "$pct" -gt 100 ] && pct=100
+      local bar_w=25
+      local filled=$(( pct * bar_w / 100 ))
+      local empty=$(( bar_w - filled ))
+      local bar=""
+      for j in $(seq 1 $filled); do bar="${bar}█"; done
+      for j in $(seq 1 $empty); do bar="${bar}░"; done
+      printf "\r  ${CYAN}[%s]${RESET} %-13s %s %3d%%  %s / %s" \
+        "$idx" "$label" "$bar" "$pct" "$(format_size $downloaded)" "$(format_size $total)"
+    done
+
+    if wait "$pid" 2>/dev/null; then
+      # 校验文件大小（允许 ±1% 误差，防止部分下载）
+      local actual
+      actual=$(wc -c < "$tmpfile" 2>/dev/null | tr -d ' ')
+      if [ "${total:-0}" -gt 0 ] && [ "$actual" -lt $(( total * 99 / 100 )) ]; then
+        printf "\r  ${YELLOW}[%s] %-13s 文件不完整 (%s/%s)，切换镜像...${RESET}%20s\n" \
+          "$idx" "$label" "$(format_size $actual)" "$(format_size $total)" ""
+        continue
+      fi
+      mv "$tmpfile" "$dest"
+      chmod +x "$dest"
+      printf "\r  ${GREEN}[%s] %-13s █████████████████████████ 100%%  %s ✓${RESET}%20s\n" \
+        "$idx" "$label" "$(format_size $total)" ""
+      rm -rf "$tmpdir"
+      return 0
     fi
-    local pct=0
-    if [ "${total:-0}" -gt 0 ]; then
-      pct=$(( downloaded * 100 / total ))
+
+    # 下载失败，尝试下一个镜像
+    if [ -n "$mirror" ]; then
+      printf "\r  ${YELLOW}[%s] %-13s 镜像失败，切换下一个...${RESET}%30s\n" "$idx" "$label" ""
+    else
+      printf "\r  ${YELLOW}[%s] %-13s 直连失败，尝试镜像...${RESET}%30s\n" "$idx" "$label" ""
     fi
-    [ "$pct" -gt 100 ] && pct=100
-    local bar_w=25
-    local filled=$(( pct * bar_w / 100 ))
-    local empty=$(( bar_w - filled ))
-    local bar=""
-    for j in $(seq 1 $filled); do bar="${bar}█"; done
-    for j in $(seq 1 $empty); do bar="${bar}░"; done
-    printf "\r  ${CYAN}[%s]${RESET} %-13s %s %3d%%  %s / %s" \
-      "$idx" "$label" "$bar" "$pct" "$(format_size $downloaded)" "$(format_size $total)"
+    sleep 1
   done
 
-  if ! wait "$pid" 2>/dev/null; then
-    printf "\r  ${RED}[%s] %-13s 下载失败${RESET}%50s\n" "$idx" "$label" ""
-    rm -rf "$tmpdir"
-    return 1
-  fi
-
-  mv "$tmpfile" "$dest"
-  chmod +x "$dest"
-  printf "\r  ${GREEN}[%s] %-13s █████████████████████████ 100%%  %s ✓${RESET}%20s\n" \
-    "$idx" "$label" "$(format_size $total)" ""
-
+  printf "\r  ${RED}[%s] %-13s 所有下载源均失败${RESET}%40s\n" "$idx" "$label" ""
   rm -rf "$tmpdir"
-  return 0
+  return 1
 }
 
 # ── 主下载流程 ────────────────────────────
@@ -173,8 +217,7 @@ run_downloads() {
   echo -e " 共 ${BOLD}$(format_size $total_all)${RESET} (CLI $(format_size $cli_size) + Server $(format_size $srv_size))"
   echo ""
 
-  # 顺序下载两个文件（各自内部分片并发），失败自动重试
-  local max_retries=3
+  # 顺序下载（download_one 内部自动切换镜像）
   local item
   for item in "cli" "srv"; do
     local _url _dest _label _size _idx
@@ -183,19 +226,12 @@ run_downloads() {
     else
       _url="$srv_url"; _dest="$srv_dest"; _label="niuma Server"; _size="$srv_size"; _idx="2/2"
     fi
-    local attempt=1
-    while true; do
-      if download_one "$_url" "$_dest" "$_label" "$_size" "$_idx"; then
-        break
-      fi
-      if [ "$attempt" -ge "$max_retries" ]; then
-        echo -e "\n${RED}${_label} 下载失败（已重试 ${max_retries} 次）: ${_url}${RESET}"
-        exit 1
-      fi
-      attempt=$(( attempt + 1 ))
-      echo -e "  ${YELLOW}↻ 重试 ${attempt}/${max_retries}...${RESET}"
-      sleep 2
-    done
+    if ! download_one "$_url" "$_dest" "$_label" "$_size" "$_idx"; then
+      echo -e "\n${RED}${_label} 下载失败: ${_url}${RESET}"
+      echo -e "${YELLOW}提示: 可设置 GITHUB_MIRROR 环境变量指定镜像，如:${RESET}"
+      echo -e "  ${CYAN}GITHUB_MIRROR=https://ghfast.top/ curl -fsSL ... | bash${RESET}"
+      exit 1
+    fi
   done
 
   # 校验
@@ -267,20 +303,9 @@ download_desktop_app() {
   app_size=$(get_file_size "$app_file")
   app_size=${app_size:-0}
 
-  local app_attempt=1
-  local app_ok=false
-  while [ "$app_attempt" -le 3 ]; do
-    if download_one "$app_url" "$dest" "桌面客户端" "$app_size" "⬇"; then
-      app_ok=true
-      break
-    fi
-    app_attempt=$(( app_attempt + 1 ))
-    [ "$app_attempt" -le 3 ] && echo -e "  ${YELLOW}↻ 重试 ${app_attempt}/3...${RESET}" && sleep 2
-  done
-
-  if [ "$app_ok" = false ]; then
+  if ! download_one "$app_url" "$dest" "桌面客户端" "$app_size" "⬇"; then
     echo ""
-    echo -e "  ${YELLOW}桌面客户端下载失败（可能尚未发布此版本），手动下载：${RESET}"
+    echo -e "  ${YELLOW}桌面客户端下载失败，手动下载：${RESET}"
     echo -e "  ${CYAN}https://github.com/${NIUMA_REPO}/releases${RESET}"
     return
   fi
