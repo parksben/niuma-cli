@@ -114,7 +114,37 @@ fi
 
 CHUNKS=16
 
-# ── 下载单个文件（多镜像 + 16线程并发分片 + 进度条） ──
+# ── 检测/安装下载工具 ─────────────────────
+DOWNLOADER="curl"
+if command -v aria2c &>/dev/null; then
+  DOWNLOADER="aria2c"
+else
+  echo -e "${DIM}  检测到未安装 aria2，尝试自动安装以加速下载...${RESET}"
+  case "$(uname -s)" in
+    Darwin)
+      if command -v brew &>/dev/null; then
+        brew install aria2 </dev/null 2>/dev/null && DOWNLOADER="aria2c"
+      fi
+      ;;
+    Linux)
+      if command -v apt-get &>/dev/null; then
+        sudo apt-get install -y -qq aria2 </dev/null 2>/dev/null && DOWNLOADER="aria2c"
+      elif command -v yum &>/dev/null; then
+        sudo yum install -y -q aria2 </dev/null 2>/dev/null && DOWNLOADER="aria2c"
+      elif command -v pacman &>/dev/null; then
+        sudo pacman -S --noconfirm aria2 </dev/null 2>/dev/null && DOWNLOADER="aria2c"
+      fi
+      ;;
+  esac
+  if [ "$DOWNLOADER" = "aria2c" ]; then
+    echo -e "${GREEN}  ✓ aria2 已安装${RESET}"
+  else
+    echo -e "${DIM}  未能安装 aria2，使用 curl 下载（可能较慢）${RESET}"
+    echo -e "${DIM}  手动安装: brew install aria2 / apt install aria2${RESET}"
+  fi
+fi
+
+# ── 下载单个文件（多镜像 + aria2c/curl 自动选择） ──
 download_one() {
   local url="$1"
   local dest="$2"
@@ -124,128 +154,120 @@ download_one() {
 
   local tmpdir
   tmpdir=$(mktemp -d)
+  local tmpfile="${tmpdir}/download"
+  local dest_dir
+  dest_dir=$(dirname "$dest")
+  local dest_name
+  dest_name=$(basename "$dest")
 
+  # 构建所有候选 URL
+  local urls=()
   for mirror in "${GITHUB_MIRRORS[@]}"; do
-    local try_url
     if [ -z "$mirror" ]; then
-      try_url="$url"
+      urls+=("$url")
     else
-      try_url="${mirror}${url}"
+      urls+=("${mirror}${url}")
+    fi
+  done
+
+  if [ "$DOWNLOADER" = "aria2c" ]; then
+    # ── aria2c: 原生多线程+多源+断点续传 ──
+    # 写入 URL 列表文件
+    local url_file="${tmpdir}/urls.txt"
+    for u in "${urls[@]}"; do
+      echo "$u" >> "$url_file"
+    done
+
+    printf "  ${CYAN}[%s]${RESET} %-13s 下载中 (aria2c ×%d)...\n" "$idx" "$label" "$CHUNKS"
+
+    if aria2c \
+      --input-file="$url_file" \
+      --dir="$tmpdir" \
+      --out="download" \
+      --split="$CHUNKS" \
+      --max-connection-per-server="$CHUNKS" \
+      --min-split-size=1M \
+      --max-tries=5 \
+      --retry-wait=2 \
+      --connect-timeout=10 \
+      --timeout=600 \
+      --file-allocation=none \
+      --console-log-level=warn \
+      --summary-interval=3 \
+      --download-result=hide \
+      </dev/null 2>&1 | while IFS= read -r line; do
+        # 提取进度信息
+        if echo "$line" | grep -qE '\[.*\]'; then
+          printf "\r  ${CYAN}[%s]${RESET} %-13s %s" "$idx" "$label" "$line"
+        fi
+      done; then
+      :
     fi
 
-    # ── 尝试分片并发下载 ──
-    if [ "${total:-0}" -gt 0 ]; then
-      local chunk_size=$(( total / CHUNKS ))
-      local pids=()
-      local i
-
-      # 清理上一轮的分片
-      rm -f "${tmpdir}"/chunk_*
-
-      for i in $(seq 0 $(( CHUNKS - 1 ))); do
-        local start=$(( i * chunk_size ))
-        local end
-        if [ "$i" -eq $(( CHUNKS - 1 )) ]; then
-          end=$(( total - 1 ))
-        else
-          end=$(( start + chunk_size - 1 ))
-        fi
-        curl -fSL --connect-timeout 10 --max-time 600 \
-          -r "${start}-${end}" \
-          -o "${tmpdir}/chunk_$(printf '%02d' $i)" \
-          "$try_url" </dev/null 2>/dev/null &
-        pids+=($!)
-      done
-
-      # 监控进度
-      while true; do
-        sleep 0.3
-        local downloaded=0
-        local all_done=true
-        for i in $(seq 0 $(( CHUNKS - 1 ))); do
-          if [ -f "${tmpdir}/chunk_$(printf '%02d' $i)" ]; then
-            local sz
-            sz=$(wc -c < "${tmpdir}/chunk_$(printf '%02d' $i)" 2>/dev/null || echo 0)
-            sz=$(echo "$sz" | tr -d ' ')
-            downloaded=$(( downloaded + sz ))
-          fi
-          if kill -0 "${pids[$i]}" 2>/dev/null; then
-            all_done=false
-          fi
-        done
-
-        local pct=0
-        if [ "$total" -gt 0 ]; then
-          pct=$(( downloaded * 100 / total ))
-        fi
-        [ "$pct" -gt 100 ] && pct=100
-
-        local bar_w=25
-        local filled=$(( pct * bar_w / 100 ))
-        local empty=$(( bar_w - filled ))
-        local bar=""
-        for j in $(seq 1 $filled); do bar="${bar}█"; done
-        for j in $(seq 1 $empty); do bar="${bar}░"; done
-
-        printf "\r  ${CYAN}[%s]${RESET} %-13s %s %3d%%  %s / %s" \
-          "$idx" "$label" "$bar" "$pct" "$(format_size $downloaded)" "$(format_size $total)"
-
-        if $all_done; then break; fi
-      done
-
-      # 检查所有分片是否成功
-      local fail=false
-      for pid in "${pids[@]}"; do
-        wait "$pid" 2>/dev/null || fail=true
-      done
-
-      if ! $fail; then
-        # 合并分片
-        cat "${tmpdir}"/chunk_* > "$dest" 2>/dev/null
-        local actual
-        actual=$(wc -c < "$dest" 2>/dev/null | tr -d ' ')
-        if [ "$actual" -ge $(( total * 99 / 100 )) ]; then
-          chmod +x "$dest"
-          printf "\r  ${GREEN}[%s] %-13s █████████████████████████ 100%%  %s ✓${RESET}%20s\n" \
-            "$idx" "$label" "$(format_size $total)" ""
-          rm -rf "$tmpdir"
-          return 0
-        fi
-        printf "\r  ${YELLOW}[%s] %-13s 文件不完整 (%s/%s)${RESET}%20s\n" \
-          "$idx" "$label" "$(format_size $actual)" "$(format_size $total)" ""
-      else
-        # 杀掉还在跑的分片
-        for pid in "${pids[@]}"; do
-          kill "$pid" 2>/dev/null
-        done
-      fi
-    else
-      # 文件大小未知，单线程下载
-      rm -f "${tmpdir}/download"
-      curl -fSL --connect-timeout 10 --max-time 600 \
-        -o "${tmpdir}/download" "$try_url" </dev/null 2>/dev/null &
-      local pid=$!
-      while kill -0 "$pid" 2>/dev/null; do
-        sleep 0.5
-        printf "\r  ${CYAN}[%s]${RESET} %-13s 下载中..." "$idx" "$label"
-      done
-      if wait "$pid" 2>/dev/null; then
-        mv "${tmpdir}/download" "$dest"
+    # 检查 aria2c 结果
+    if [ -f "$tmpfile" ]; then
+      local actual
+      actual=$(wc -c < "$tmpfile" 2>/dev/null | tr -d ' ')
+      if [ "${total:-0}" -eq 0 ] || [ "$actual" -ge $(( total * 99 / 100 )) ]; then
+        mv "$tmpfile" "$dest"
         chmod +x "$dest"
-        local actual
-        actual=$(wc -c < "$dest" 2>/dev/null | tr -d ' ')
-        printf "\r  ${GREEN}[%s] %-13s █████████████████████████ 100%%  %s ✓${RESET}%20s\n" \
-          "$idx" "$label" "$(format_size $actual)" ""
+        printf "\r  ${GREEN}[%s] %-13s █████████████████████████ 100%%  %s ✓${RESET}%30s\n" \
+          "$idx" "$label" "$(format_size ${total:-$actual})" ""
         rm -rf "$tmpdir"
         return 0
       fi
     fi
 
-    # 当前源失败，切换
-    if [ -n "$mirror" ]; then
-      printf "\r  ${YELLOW}[%s] %-13s 镜像失败，切换下一个...${RESET}%30s\n" "$idx" "$label" ""
+    printf "\r  ${RED}[%s] %-13s aria2c 下载失败${RESET}%40s\n" "$idx" "$label" ""
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  # ── curl 回退: 逐个镜像尝试（单连接） ──
+  for try_url in "${urls[@]}"; do
+    rm -f "$tmpfile"
+
+    curl -fSL --connect-timeout 10 --max-time 600 \
+      --speed-limit 10240 --speed-time 15 \
+      -o "$tmpfile" "$try_url" </dev/null 2>/dev/null &
+    local pid=$!
+
+    while kill -0 "$pid" 2>/dev/null; do
+      sleep 0.5
+      local downloaded=0
+      if [ -f "$tmpfile" ]; then
+        downloaded=$(wc -c < "$tmpfile" 2>/dev/null || echo 0)
+        downloaded=$(echo "$downloaded" | tr -d ' ')
+      fi
+      local pct=0
+      if [ "${total:-0}" -gt 0 ]; then
+        pct=$(( downloaded * 100 / total ))
+      fi
+      [ "$pct" -gt 100 ] && pct=100
+      local bar_w=25
+      local filled=$(( pct * bar_w / 100 ))
+      local empty=$(( bar_w - filled ))
+      local bar=""
+      for j in $(seq 1 $filled); do bar="${bar}█"; done
+      for j in $(seq 1 $empty); do bar="${bar}░"; done
+      printf "\r  ${CYAN}[%s]${RESET} %-13s %s %3d%%  %s / %s" \
+        "$idx" "$label" "$bar" "$pct" "$(format_size $downloaded)" "$(format_size $total)"
+    done
+
+    if wait "$pid" 2>/dev/null; then
+      local actual
+      actual=$(wc -c < "$tmpfile" 2>/dev/null | tr -d ' ')
+      if [ "${total:-0}" -eq 0 ] || [ "$actual" -ge $(( total * 99 / 100 )) ]; then
+        mv "$tmpfile" "$dest"
+        chmod +x "$dest"
+        printf "\r  ${GREEN}[%s] %-13s █████████████████████████ 100%%  %s ✓${RESET}%20s\n" \
+          "$idx" "$label" "$(format_size ${total:-$actual})" ""
+        rm -rf "$tmpdir"
+        return 0
+      fi
+      printf "\r  ${YELLOW}[%s] %-13s 文件不完整，切换源...${RESET}%30s\n" "$idx" "$label" ""
     else
-      printf "\r  ${YELLOW}[%s] %-13s 直连失败，尝试镜像...${RESET}%30s\n" "$idx" "$label" ""
+      printf "\r  ${YELLOW}[%s] %-13s 失败，切换下一个源...${RESET}%30s\n" "$idx" "$label" ""
     fi
     sleep 1
   done
