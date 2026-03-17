@@ -28,9 +28,9 @@ echo "────────────────────────�
 format_size() {
   local bytes=$1
   if [ "$bytes" -gt 1048576 ] 2>/dev/null; then
-    printf "%.1fMB" "$(echo "$bytes / 1048576" | bc -l)"
+    printf "%.1fMB" "$(awk "BEGIN{printf \"%.1f\", $bytes/1048576}")"
   elif [ "$bytes" -gt 1024 ] 2>/dev/null; then
-    printf "%.0fKB" "$(echo "$bytes / 1024" | bc -l)"
+    printf "%.0fKB" "$(awk "BEGIN{printf \"%.0f\", $bytes/1024}")"
   else
     printf "%dB" "$bytes"
   fi

@@ -1,19 +1,26 @@
 #!/usr/bin/env node
 
 import { program } from 'commander';
-import { createRequire } from 'module';
+import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const require = createRequire(import.meta.url);
-const pkg = require('../package.json');
+
+// Version: read from package.json at runtime (dev), or use embedded version (compiled binary)
+let version = '0.1.4';
+try {
+  const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
+  version = pkg.version;
+} catch {
+  // Compiled binary — use hardcoded version
+}
 
 program
   .name('niuma')
   .description('牛马产品统一命令行工具 🐂🐴')
-  .version(pkg.version, '-v, --version');
+  .version(version, '-v, --version');
 
 // niuma install
 const { installCommand } = await import('./commands/install.js');
