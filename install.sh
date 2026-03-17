@@ -114,36 +114,6 @@ fi
 
 CHUNKS=16
 
-# ── 检测/安装下载工具 ─────────────────────
-DOWNLOADER="curl"
-if command -v aria2c &>/dev/null; then
-  DOWNLOADER="aria2c"
-else
-  echo -e "${DIM}  检测到未安装 aria2，尝试自动安装以加速下载...${RESET}"
-  case "$(uname -s)" in
-    Darwin)
-      if command -v brew &>/dev/null; then
-        brew install aria2 </dev/null 2>/dev/null && DOWNLOADER="aria2c"
-      fi
-      ;;
-    Linux)
-      if command -v apt-get &>/dev/null; then
-        sudo apt-get install -y -qq aria2 </dev/null 2>/dev/null && DOWNLOADER="aria2c"
-      elif command -v yum &>/dev/null; then
-        sudo yum install -y -q aria2 </dev/null 2>/dev/null && DOWNLOADER="aria2c"
-      elif command -v pacman &>/dev/null; then
-        sudo pacman -S --noconfirm aria2 </dev/null 2>/dev/null && DOWNLOADER="aria2c"
-      fi
-      ;;
-  esac
-  if [ "$DOWNLOADER" = "aria2c" ]; then
-    echo -e "${GREEN}  ✓ aria2 已安装${RESET}"
-  else
-    echo -e "${DIM}  未能安装 aria2，使用 curl 下载（可能较慢）${RESET}"
-    echo -e "${DIM}  手动安装: brew install aria2 / apt install aria2${RESET}"
-  fi
-fi
-
 # ── 检查文件是否已是最新（版本+大小双重校验） ──
 VERSION_FILE="${INSTALL_DIR}/.version"
 
@@ -151,7 +121,6 @@ is_file_current() {
   local file="$1"
   local expected_size="$2"
   if [ ! -f "$file" ]; then return 1; fi
-  # 版本不匹配则需要重新下载
   if [ -f "$VERSION_FILE" ] && [ "$(cat "$VERSION_FILE" 2>/dev/null)" != "$LATEST" ]; then
     return 1
   fi
@@ -161,7 +130,7 @@ is_file_current() {
   [ "$actual" -eq "$expected_size" ]
 }
 
-# ── 下载单个文件（多镜像 + aria2c/curl + 断点续传） ──
+# ── 下载单个文件（多镜像 + curl + 断点续传） ──
 download_one() {
   local url="$1"
   local dest="$2"
@@ -190,65 +159,8 @@ download_one() {
     fi
   done
 
-  if [ "$DOWNLOADER" = "aria2c" ]; then
-    # ── aria2c: 原生多线程+多源+断点续传 ──
-
-    printf "  ${CYAN}[%s]${RESET} %-13s 下载中 (aria2c ×%d)...\n" "$idx" "$label" "$CHUNKS"
-
-    # 清理无控制文件的残留（含旧版脚本遗留的非 .partial 文件）
-    local base_name
-    base_name=$(basename "$dest")
-    rm -f "${dl_dir}/${base_name}" "${dl_dir}/${base_name}.aria2"
-    if [ -f "$tmpfile" ] && [ ! -f "${tmpfile}.aria2" ]; then
-      rm -f "$tmpfile"
-    fi
-
-    # aria2c 多源：所有 URL 作为命令行参数传入（同一文件的多个镜像）
-    if aria2c \
-      "${urls[@]}" \
-      --dir="$dl_dir" \
-      --out="$(basename "$tmpfile")" \
-      --continue=true \
-      --auto-file-renaming=false \
-      --allow-overwrite=true \
-      --split="$CHUNKS" \
-      --max-connection-per-server="$CHUNKS" \
-      --min-split-size=1M \
-      --max-tries=5 \
-      --retry-wait=2 \
-      --connect-timeout=10 \
-      --timeout=600 \
-      --file-allocation=none \
-      --console-log-level=warn \
-      --summary-interval=3 \
-      --download-result=hide \
-      </dev/null 2>&1 | while IFS= read -r line; do
-        if echo "$line" | grep -qE '\[.*\]'; then
-          printf "\r  ${CYAN}[%s]${RESET} %-13s %s" "$idx" "$label" "$line"
-        fi
-      done; then
-      :
-    fi
-
-    if [ -f "$tmpfile" ]; then
-      local actual
-      actual=$(wc -c < "$tmpfile" 2>/dev/null | tr -d ' ')
-      if [ "${total:-0}" -eq 0 ] || [ "$actual" -ge $(( total * 99 / 100 )) ]; then
-        mv "$tmpfile" "$dest"
-        chmod +x "$dest"
-        rm -f "${tmpfile}.aria2"
-        printf "\r  ${GREEN}[%s] %-13s █████████████████████████ 100%%  %s ✓${RESET}%30s\n" \
-          "$idx" "$label" "$(format_size ${total:-$actual})" ""
-        return 0
-      fi
-    fi
-
-    printf "\r  ${YELLOW}[%s] %-13s aria2c 失败，回退到 curl...${RESET}%30s\n" "$idx" "$label" ""
-  fi
-
-  # ── curl 回退: 逐个镜像尝试 + 断点续传 ──
+  # ── curl: 逐个镜像尝试 + 断点续传 ──
   for try_url in "${urls[@]}"; do
-    # curl -C - 自动从已有文件续传
     curl -fSL --connect-timeout 10 --max-time 600 \
       --speed-limit 10240 --speed-time 15 \
       -C - -o "$tmpfile" "$try_url" </dev/null 2>/dev/null &
