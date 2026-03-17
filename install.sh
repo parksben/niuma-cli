@@ -192,11 +192,6 @@ download_one() {
 
   if [ "$DOWNLOADER" = "aria2c" ]; then
     # ── aria2c: 原生多线程+多源+断点续传 ──
-    local url_file="${dl_dir}/$(basename "$dest").urls"
-    : > "$url_file"
-    for u in "${urls[@]}"; do
-      echo "$u" >> "$url_file"
-    done
 
     printf "  ${CYAN}[%s]${RESET} %-13s 下载中 (aria2c ×%d)...\n" "$idx" "$label" "$CHUNKS"
 
@@ -205,8 +200,9 @@ download_one() {
       rm -f "$tmpfile"
     fi
 
+    # aria2c 多源：所有 URL 作为命令行参数传入（同一文件的多个镜像）
     if aria2c \
-      --input-file="$url_file" \
+      "${urls[@]}" \
       --dir="$dl_dir" \
       --out="$(basename "$tmpfile")" \
       --continue=true \
@@ -237,7 +233,7 @@ download_one() {
       if [ "${total:-0}" -eq 0 ] || [ "$actual" -ge $(( total * 99 / 100 )) ]; then
         mv "$tmpfile" "$dest"
         chmod +x "$dest"
-        rm -f "$url_file" "${tmpfile}.aria2"
+        rm -f "${tmpfile}.aria2"
         printf "\r  ${GREEN}[%s] %-13s █████████████████████████ 100%%  %s ✓${RESET}%30s\n" \
           "$idx" "$label" "$(format_size ${total:-$actual})" ""
         return 0
