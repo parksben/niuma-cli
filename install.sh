@@ -289,8 +289,8 @@ download_desktop_app() {
 
   case "$PLATFORM" in
     macos-arm64|macos-x64)
-      # 只有 aarch64 DMG，Intel Mac 通过 Rosetta 2 运行
       app_file="niuma-desktop_${LATEST#v}_aarch64.dmg"
+      [ "$PLATFORM" = "macos-x64" ] && app_file="niuma-desktop_${LATEST#v}_x64.dmg"
       ;;
     linux-x64)
       app_file="niuma-desktop_${LATEST#v}_amd64.AppImage"
