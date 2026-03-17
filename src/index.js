@@ -9,7 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Version: read from package.json at runtime (dev), or use embedded version (compiled binary)
-let version = '0.1.4';
+let version = '0.1.5';
 try {
   const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
   version = pkg.version;
