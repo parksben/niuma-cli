@@ -161,9 +161,9 @@ download_one() {
 
   # ── curl: 逐个镜像尝试 + 断点续传 ──
   for try_url in "${urls[@]}"; do
-    curl -fSL --connect-timeout 10 --max-time 600 \
-      --speed-limit 10240 --speed-time 15 \
-      -C - -o "$tmpfile" "$try_url" </dev/null 2>/dev/null &
+    curl -fSL --connect-timeout 15 --max-time 900 \
+      --speed-limit 1024 --speed-time 30 \
+      -o "$tmpfile" "$try_url" </dev/null 2>/dev/null &
     local pid=$!
 
     while kill -0 "$pid" 2>/dev/null; do
@@ -314,6 +314,7 @@ download_desktop_app() {
   local dest="${download_dir}/${app_file}"
 
   echo -e "  正在下载 ${BOLD}${app_file}${RESET} ..."
+  echo -e "  ${DIM}URL: ${app_url}${RESET}"
 
   # 获取文件大小（从 release JSON 直接提取对应 asset 的 browser_download_url 和 size）
   local app_size
