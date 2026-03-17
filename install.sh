@@ -243,8 +243,7 @@ download_one() {
       fi
     fi
 
-    printf "\r  ${RED}[%s] %-13s aria2c 下载失败（部分文件已保存，重新运行可续传）${RESET}%10s\n" "$idx" "$label" ""
-    return 1
+    printf "\r  ${YELLOW}[%s] %-13s aria2c 失败，回退到 curl...${RESET}%30s\n" "$idx" "$label" ""
   fi
 
   # ── curl 回退: 逐个镜像尝试 + 断点续传 ──
