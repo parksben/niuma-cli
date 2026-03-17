@@ -328,19 +328,51 @@ download_desktop_app() {
   echo ""
   echo -e "  ${GREEN}✓${RESET} 已下载到: ${BOLD}${dest}${RESET}"
 
-  # macOS: 移除隔离属性，防止 "已损坏" 提示
+  # macOS: 自动安装 .app 并移除隔离属性
   case "$PLATFORM" in
     macos-*)
-      echo -e "  ${DIM}移除 macOS 隔离属性...${RESET}"
-      xattr -cr "$dest" 2>/dev/null || true
+      if [[ "$dest" == *.dmg ]]; then
+        echo -e "  ${DIM}正在自动安装桌面客户端...${RESET}"
+        local mount_point
+        mount_point=$(hdiutil attach "$dest" -nobrowse -noverify -noautoopen 2>/dev/null | grep '/Volumes/' | awk -F'\t' '{print $NF}')
+        if [ -n "$mount_point" ]; then
+          local app_path
+          app_path=$(find "$mount_point" -maxdepth 1 -name '*.app' -print -quit 2>/dev/null)
+          if [ -n "$app_path" ]; then
+            local app_name
+            app_name=$(basename "$app_path")
+            local target_app="/Applications/${app_name}"
+            # 如果已存在旧版本，先删除
+            rm -rf "$target_app" 2>/dev/null
+            cp -R "$app_path" /Applications/
+            # 移除隔离属性
+            xattr -cr "$target_app" 2>/dev/null || true
+            echo -e "  ${GREEN}✓${RESET} 已安装到: ${BOLD}${target_app}${RESET}"
+            echo -e "  ${DIM}已自动移除隔离属性，可直接打开${RESET}"
+          fi
+          hdiutil detach "$mount_point" -quiet 2>/dev/null || true
+        else
+          echo -e "  ${YELLOW}自动安装失败，请手动双击 DMG 安装${RESET}"
+          xattr -cr "$dest" 2>/dev/null || true
+        fi
+      fi
+      ;;
+    linux-*)
+      if [[ "$dest" == *.AppImage ]]; then
+        chmod +x "$dest"
+      fi
       ;;
   esac
 
-  # 打开下载目录
-  case "$(uname -s)" in
-    Darwin) open "$download_dir" 2>/dev/null ;;
-    Linux)  xdg-open "$download_dir" 2>/dev/null ;;
-    MINGW*|MSYS*|CYGWIN*) explorer.exe "$download_dir" 2>/dev/null ;;
+  # 打开下载目录（非 macOS DMG 自动安装时）
+  case "$PLATFORM" in
+    macos-*) ;; # 已自动安装，不需要打开目录
+    *)
+      case "$(uname -s)" in
+        Linux)  xdg-open "$download_dir" 2>/dev/null ;;
+        MINGW*|MSYS*|CYGWIN*) explorer.exe "$download_dir" 2>/dev/null ;;
+      esac
+      ;;
   esac
 }
 
@@ -393,9 +425,8 @@ echo ""
 echo -e "  ${BOLD}1.${RESET} 启动服务"
 echo -e "     ${CYAN}niuma server start${RESET}"
 echo ""
-echo -e "  ${BOLD}2.${RESET} 安装桌面客户端"
-echo -e "     安装包已下载到 ~/Downloads，双击即可安装"
-echo -e "     ${DIM}macOS 如提示已损坏，运行: sudo xattr -cr /Applications/牛马.app${RESET}"
+echo -e "  ${BOLD}2.${RESET} 打开桌面客户端"
+echo -e "     ${DIM}macOS 已自动安装到 /Applications，可直接从启动台打开${RESET}"
 echo ""
 echo -e "  ${BOLD}3.${RESET} 打开客户端，在首次配置页面填入 OpenClaw Token"
 echo -e "     ${DIM}在 OpenClaw 服务器上运行:${RESET} ${CYAN}openclaw token${RESET}"
