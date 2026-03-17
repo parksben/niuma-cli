@@ -144,7 +144,18 @@ else
   fi
 fi
 
-# ── 下载单个文件（多镜像 + aria2c/curl 自动选择） ──
+# ── 检查文件是否已是最新（大小匹配即跳过） ──
+is_file_current() {
+  local file="$1"
+  local expected_size="$2"
+  if [ ! -f "$file" ]; then return 1; fi
+  if [ "${expected_size:-0}" -eq 0 ]; then return 1; fi
+  local actual
+  actual=$(wc -c < "$file" 2>/dev/null | tr -d ' ')
+  [ "$actual" -eq "$expected_size" ]
+}
+
+# ── 下载单个文件（多镜像 + aria2c/curl + 断点续传） ──
 download_one() {
   local url="$1"
   local dest="$2"
@@ -152,13 +163,16 @@ download_one() {
   local total="$4"
   local idx="$5"
 
-  local tmpdir
-  tmpdir=$(mktemp -d)
-  local tmpfile="${tmpdir}/download"
-  local dest_dir
-  dest_dir=$(dirname "$dest")
-  local dest_name
-  dest_name=$(basename "$dest")
+  # 如果目标文件已存在且大小正确，跳过
+  if is_file_current "$dest" "$total"; then
+    printf "  ${GREEN}[%s] %-13s 已是最新 (%s) ✓${RESET}\n" "$idx" "$label" "$(format_size $total)"
+    return 0
+  fi
+
+  # 使用持久化临时目录（支持断点续传）
+  local dl_dir="${INSTALL_DIR}/tmp"
+  mkdir -p "$dl_dir"
+  local tmpfile="${dl_dir}/$(basename "$dest").partial"
 
   # 构建所有候选 URL
   local urls=()
@@ -172,8 +186,8 @@ download_one() {
 
   if [ "$DOWNLOADER" = "aria2c" ]; then
     # ── aria2c: 原生多线程+多源+断点续传 ──
-    # 写入 URL 列表文件
-    local url_file="${tmpdir}/urls.txt"
+    local url_file="${dl_dir}/$(basename "$dest").urls"
+    : > "$url_file"
     for u in "${urls[@]}"; do
       echo "$u" >> "$url_file"
     done
@@ -182,8 +196,11 @@ download_one() {
 
     if aria2c \
       --input-file="$url_file" \
-      --dir="$tmpdir" \
-      --out="download" \
+      --dir="$dl_dir" \
+      --out="$(basename "$tmpfile")" \
+      --continue=true \
+      --auto-file-renaming=false \
+      --allow-overwrite=false \
       --split="$CHUNKS" \
       --max-connection-per-server="$CHUNKS" \
       --min-split-size=1M \
@@ -196,7 +213,6 @@ download_one() {
       --summary-interval=3 \
       --download-result=hide \
       </dev/null 2>&1 | while IFS= read -r line; do
-        # 提取进度信息
         if echo "$line" | grep -qE '\[.*\]'; then
           printf "\r  ${CYAN}[%s]${RESET} %-13s %s" "$idx" "$label" "$line"
         fi
@@ -204,32 +220,29 @@ download_one() {
       :
     fi
 
-    # 检查 aria2c 结果
     if [ -f "$tmpfile" ]; then
       local actual
       actual=$(wc -c < "$tmpfile" 2>/dev/null | tr -d ' ')
       if [ "${total:-0}" -eq 0 ] || [ "$actual" -ge $(( total * 99 / 100 )) ]; then
         mv "$tmpfile" "$dest"
         chmod +x "$dest"
+        rm -f "$url_file" "${tmpfile}.aria2"
         printf "\r  ${GREEN}[%s] %-13s █████████████████████████ 100%%  %s ✓${RESET}%30s\n" \
           "$idx" "$label" "$(format_size ${total:-$actual})" ""
-        rm -rf "$tmpdir"
         return 0
       fi
     fi
 
-    printf "\r  ${RED}[%s] %-13s aria2c 下载失败${RESET}%40s\n" "$idx" "$label" ""
-    rm -rf "$tmpdir"
+    printf "\r  ${RED}[%s] %-13s aria2c 下载失败（部分文件已保存，重新运行可续传）${RESET}%10s\n" "$idx" "$label" ""
     return 1
   fi
 
-  # ── curl 回退: 逐个镜像尝试（单连接） ──
+  # ── curl 回退: 逐个镜像尝试 + 断点续传 ──
   for try_url in "${urls[@]}"; do
-    rm -f "$tmpfile"
-
+    # curl -C - 自动从已有文件续传
     curl -fSL --connect-timeout 10 --max-time 600 \
       --speed-limit 10240 --speed-time 15 \
-      -o "$tmpfile" "$try_url" </dev/null 2>/dev/null &
+      -C - -o "$tmpfile" "$try_url" </dev/null 2>/dev/null &
     local pid=$!
 
     while kill -0 "$pid" 2>/dev/null; do
@@ -262,7 +275,6 @@ download_one() {
         chmod +x "$dest"
         printf "\r  ${GREEN}[%s] %-13s █████████████████████████ 100%%  %s ✓${RESET}%20s\n" \
           "$idx" "$label" "$(format_size ${total:-$actual})" ""
-        rm -rf "$tmpdir"
         return 0
       fi
       printf "\r  ${YELLOW}[%s] %-13s 文件不完整，切换源...${RESET}%30s\n" "$idx" "$label" ""
@@ -272,8 +284,7 @@ download_one() {
     sleep 1
   done
 
-  printf "\r  ${RED}[%s] %-13s 所有下载源均失败${RESET}%40s\n" "$idx" "$label" ""
-  rm -rf "$tmpdir"
+  printf "\r  ${RED}[%s] %-13s 所有下载源均失败（部分文件已保存，重新运行可续传）${RESET}\n" "$idx" "$label"
   return 1
 }
 
@@ -433,6 +444,9 @@ run_downloads "$BASE_URL"
 init_config
 setup_path
 download_desktop_app
+
+# 清理下载临时文件
+rm -rf "${INSTALL_DIR}/tmp"
 
 RELEASES_URL="https://github.com/${NIUMA_REPO}/releases/tag/${LATEST}"
 
