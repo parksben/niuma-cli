@@ -70,9 +70,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           repository: parksben/niuma
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
           tag_name: ${{ steps.version.outputs.version }}
           name: "牛马 ${{ steps.version.outputs.version }}"
           files: dist/*
           generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+          make_latest: true
