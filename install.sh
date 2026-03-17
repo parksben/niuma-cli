@@ -195,7 +195,10 @@ download_one() {
 
     printf "  ${CYAN}[%s]${RESET} %-13s 下载中 (aria2c ×%d)...\n" "$idx" "$label" "$CHUNKS"
 
-    # 清理无控制文件的残留（aria2c 无法续传没有 .aria2 的文件）
+    # 清理无控制文件的残留（含旧版脚本遗留的非 .partial 文件）
+    local base_name
+    base_name=$(basename "$dest")
+    rm -f "${dl_dir}/${base_name}" "${dl_dir}/${base_name}.aria2"
     if [ -f "$tmpfile" ] && [ ! -f "${tmpfile}.aria2" ]; then
       rm -f "$tmpfile"
     fi
