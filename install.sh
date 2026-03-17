@@ -72,11 +72,11 @@ detect_platform() {
   echo -e "检测到平台: ${BOLD}${PLATFORM}${RESET}"
 }
 
-# ── 获取最新版本 ──────────────────────────
+# ── 获取最新版本（同时缓存 release JSON 供后续提取文件大小） ──
 get_latest_version() {
   echo -n "获取最新版本..."
-  LATEST=$(curl -fsSL --connect-timeout 10 "https://api.github.com/repos/${NIUMA_REPO}/releases/latest" \
-    | grep '"tag_name"' | cut -d'"' -f4)
+  RELEASE_JSON=$(curl -fsSL --connect-timeout 10 "https://api.github.com/repos/${NIUMA_REPO}/releases/latest")
+  LATEST=$(echo "$RELEASE_JSON" | grep '"tag_name"' | cut -d'"' -f4)
   if [ -z "$LATEST" ]; then
     echo -e " ${RED}✗${RESET}"
     echo -e "${RED}无法获取最新版本，请检查网络连接${RESET}"
@@ -85,29 +85,14 @@ get_latest_version() {
   echo -e " ${GREEN}${LATEST}${RESET}"
 }
 
-# ── 获取文件大小 ──────────────────────────
+# ── 获取文件大小（从缓存的 release JSON 提取，macOS/Linux 通用） ──
 get_file_size() {
-  local url="$1"
-  local filename="$2"  # optional: asset filename for API fallback
+  local filename="$1"
   local size
-
-  # Method 1: Range request → content-range header
-  size=$(curl -fsSI -r 0-0 -L --connect-timeout 10 "$url" 2>/dev/null \
-    | tr -d '\r' | grep -i 'content-range' | grep -oE '[0-9]+$')
-
-  # Method 2: content-length (follow redirects, take largest)
-  if [ -z "$size" ] || [ "$size" = "0" ]; then
-    size=$(curl -fsSIL --connect-timeout 10 "$url" 2>/dev/null \
-      | tr -d '\r' | grep -i '^content-length:' | awk '{print $2}' | sort -rn | head -1)
-  fi
-
-  # Method 3: GitHub API fallback (most reliable)
-  if { [ -z "$size" ] || [ "$size" = "0" ]; } && [ -n "$filename" ]; then
-    size=$(curl -fsSL --connect-timeout 10 \
-      "https://api.github.com/repos/${NIUMA_REPO}/releases/tags/${LATEST}" 2>/dev/null \
-      | grep -A3 "\"name\": \"${filename}\"" | grep '"size"' | grep -oE '[0-9]+')
-  fi
-
+  size=$(echo "$RELEASE_JSON" | awk -v name="$filename" '
+    /"name"/ { found = index($0, "\"" name "\"") > 0 }
+    found && /"size"/ { gsub(/[^0-9]/, ""); print; exit }
+  ')
   echo "${size:-0}"
 }
 
@@ -271,8 +256,8 @@ run_downloads() {
   # 获取文件大小
   echo -n "  获取文件信息..."
   local cli_size srv_size
-  cli_size=$(get_file_size "$cli_url" "$CLI_BINARY")
-  srv_size=$(get_file_size "$srv_url" "$SERVER_BINARY")
+  cli_size=$(get_file_size "$CLI_BINARY")
+  srv_size=$(get_file_size "$SERVER_BINARY")
   cli_size=${cli_size:-0}
   srv_size=${srv_size:-0}
   local total_all=$(( cli_size + srv_size ))
@@ -356,7 +341,7 @@ download_desktop_app() {
 
   # 获取文件大小
   local app_size
-  app_size=$(get_file_size "$app_url" "$app_file")
+  app_size=$(get_file_size "$app_file")
   app_size=${app_size:-0}
 
   if ! download_one "$app_url" "$dest" "桌面客户端" "$app_size" "⬇"; then
