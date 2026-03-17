@@ -112,7 +112,9 @@ if [ -n "${GITHUB_MIRROR:-}" ]; then
   GITHUB_MIRRORS=("$GITHUB_MIRROR" "${GITHUB_MIRRORS[@]}")
 fi
 
-# ── 下载单个文件（多镜像自动切换 + 进度条） ──
+CHUNKS=16
+
+# ── 下载单个文件（多镜像 + 16线程并发分片 + 进度条） ──
 download_one() {
   local url="$1"
   local dest="$2"
@@ -122,65 +124,124 @@ download_one() {
 
   local tmpdir
   tmpdir=$(mktemp -d)
-  local tmpfile="${tmpdir}/download"
 
   for mirror in "${GITHUB_MIRRORS[@]}"; do
     local try_url
     if [ -z "$mirror" ]; then
       try_url="$url"
     else
-      # 将 https://github.com/... 替换为镜像前缀
       try_url="${mirror}${url}"
     fi
 
-    rm -f "$tmpfile"
+    # ── 尝试分片并发下载 ──
+    if [ "${total:-0}" -gt 0 ]; then
+      local chunk_size=$(( total / CHUNKS ))
+      local pids=()
+      local i
 
-    # 下载（后台运行以显示进度）
-    curl -fSL --connect-timeout 10 --max-time 600 \
-      -o "$tmpfile" "$try_url" </dev/null 2>/dev/null &
-    local pid=$!
+      # 清理上一轮的分片
+      rm -f "${tmpdir}"/chunk_*
 
-    # 监控进度
-    while kill -0 "$pid" 2>/dev/null; do
-      sleep 0.5
-      local downloaded=0
-      if [ -f "$tmpfile" ]; then
-        downloaded=$(wc -c < "$tmpfile" 2>/dev/null || echo 0)
-        downloaded=$(echo "$downloaded" | tr -d ' ')
-      fi
-      local pct=0
-      if [ "${total:-0}" -gt 0 ]; then
-        pct=$(( downloaded * 100 / total ))
-      fi
-      [ "$pct" -gt 100 ] && pct=100
-      local bar_w=25
-      local filled=$(( pct * bar_w / 100 ))
-      local empty=$(( bar_w - filled ))
-      local bar=""
-      for j in $(seq 1 $filled); do bar="${bar}█"; done
-      for j in $(seq 1 $empty); do bar="${bar}░"; done
-      printf "\r  ${CYAN}[%s]${RESET} %-13s %s %3d%%  %s / %s" \
-        "$idx" "$label" "$bar" "$pct" "$(format_size $downloaded)" "$(format_size $total)"
-    done
+      for i in $(seq 0 $(( CHUNKS - 1 ))); do
+        local start=$(( i * chunk_size ))
+        local end
+        if [ "$i" -eq $(( CHUNKS - 1 )) ]; then
+          end=$(( total - 1 ))
+        else
+          end=$(( start + chunk_size - 1 ))
+        fi
+        curl -fSL --connect-timeout 10 --max-time 600 \
+          -r "${start}-${end}" \
+          -o "${tmpdir}/chunk_$(printf '%02d' $i)" \
+          "$try_url" </dev/null 2>/dev/null &
+        pids+=($!)
+      done
 
-    if wait "$pid" 2>/dev/null; then
-      # 校验文件大小（允许 ±1% 误差，防止部分下载）
-      local actual
-      actual=$(wc -c < "$tmpfile" 2>/dev/null | tr -d ' ')
-      if [ "${total:-0}" -gt 0 ] && [ "$actual" -lt $(( total * 99 / 100 )) ]; then
-        printf "\r  ${YELLOW}[%s] %-13s 文件不完整 (%s/%s)，切换镜像...${RESET}%20s\n" \
+      # 监控进度
+      while true; do
+        sleep 0.3
+        local downloaded=0
+        local all_done=true
+        for i in $(seq 0 $(( CHUNKS - 1 ))); do
+          if [ -f "${tmpdir}/chunk_$(printf '%02d' $i)" ]; then
+            local sz
+            sz=$(wc -c < "${tmpdir}/chunk_$(printf '%02d' $i)" 2>/dev/null || echo 0)
+            sz=$(echo "$sz" | tr -d ' ')
+            downloaded=$(( downloaded + sz ))
+          fi
+          if kill -0 "${pids[$i]}" 2>/dev/null; then
+            all_done=false
+          fi
+        done
+
+        local pct=0
+        if [ "$total" -gt 0 ]; then
+          pct=$(( downloaded * 100 / total ))
+        fi
+        [ "$pct" -gt 100 ] && pct=100
+
+        local bar_w=25
+        local filled=$(( pct * bar_w / 100 ))
+        local empty=$(( bar_w - filled ))
+        local bar=""
+        for j in $(seq 1 $filled); do bar="${bar}█"; done
+        for j in $(seq 1 $empty); do bar="${bar}░"; done
+
+        printf "\r  ${CYAN}[%s]${RESET} %-13s %s %3d%%  %s / %s" \
+          "$idx" "$label" "$bar" "$pct" "$(format_size $downloaded)" "$(format_size $total)"
+
+        if $all_done; then break; fi
+      done
+
+      # 检查所有分片是否成功
+      local fail=false
+      for pid in "${pids[@]}"; do
+        wait "$pid" 2>/dev/null || fail=true
+      done
+
+      if ! $fail; then
+        # 合并分片
+        cat "${tmpdir}"/chunk_* > "$dest" 2>/dev/null
+        local actual
+        actual=$(wc -c < "$dest" 2>/dev/null | tr -d ' ')
+        if [ "$actual" -ge $(( total * 99 / 100 )) ]; then
+          chmod +x "$dest"
+          printf "\r  ${GREEN}[%s] %-13s █████████████████████████ 100%%  %s ✓${RESET}%20s\n" \
+            "$idx" "$label" "$(format_size $total)" ""
+          rm -rf "$tmpdir"
+          return 0
+        fi
+        printf "\r  ${YELLOW}[%s] %-13s 文件不完整 (%s/%s)${RESET}%20s\n" \
           "$idx" "$label" "$(format_size $actual)" "$(format_size $total)" ""
-        continue
+      else
+        # 杀掉还在跑的分片
+        for pid in "${pids[@]}"; do
+          kill "$pid" 2>/dev/null
+        done
       fi
-      mv "$tmpfile" "$dest"
-      chmod +x "$dest"
-      printf "\r  ${GREEN}[%s] %-13s █████████████████████████ 100%%  %s ✓${RESET}%20s\n" \
-        "$idx" "$label" "$(format_size $total)" ""
-      rm -rf "$tmpdir"
-      return 0
+    else
+      # 文件大小未知，单线程下载
+      rm -f "${tmpdir}/download"
+      curl -fSL --connect-timeout 10 --max-time 600 \
+        -o "${tmpdir}/download" "$try_url" </dev/null 2>/dev/null &
+      local pid=$!
+      while kill -0 "$pid" 2>/dev/null; do
+        sleep 0.5
+        printf "\r  ${CYAN}[%s]${RESET} %-13s 下载中..." "$idx" "$label"
+      done
+      if wait "$pid" 2>/dev/null; then
+        mv "${tmpdir}/download" "$dest"
+        chmod +x "$dest"
+        local actual
+        actual=$(wc -c < "$dest" 2>/dev/null | tr -d ' ')
+        printf "\r  ${GREEN}[%s] %-13s █████████████████████████ 100%%  %s ✓${RESET}%20s\n" \
+          "$idx" "$label" "$(format_size $actual)" ""
+        rm -rf "$tmpdir"
+        return 0
+      fi
     fi
 
-    # 下载失败，尝试下一个镜像
+    # 当前源失败，切换
     if [ -n "$mirror" ]; then
       printf "\r  ${YELLOW}[%s] %-13s 镜像失败，切换下一个...${RESET}%30s\n" "$idx" "$label" ""
     else
