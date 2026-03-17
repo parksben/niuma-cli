@@ -10,7 +10,6 @@ NIUMA_REPO="parksben/niuma"
 INSTALL_DIR="$HOME/.niuma"
 BIN_DIR="$INSTALL_DIR/bin"
 CONFIG_FILE="$INSTALL_DIR/config.json"
-CHUNKS=8
 
 BOLD='\033[1m'
 DIM='\033[2m'
@@ -96,19 +95,7 @@ get_file_size() {
   echo "${size:-0}"
 }
 
-# ── 解析重定向获取真实 URL ────────────────
-resolve_url() {
-  local loc
-  loc=$(curl -fsSIL --connect-timeout 10 "$1" </dev/null 2>/dev/null \
-    | grep -i '^location:' | tail -1 | tr -d '\r' | awk '{print $2}')
-  if [ -n "$loc" ]; then
-    echo "$loc"
-  else
-    echo "$1"
-  fi
-}
-
-# ── 下载单个文件（分片并发+进度条） ──────
+# ── 下载单个文件（带进度条） ──────────────
 download_one() {
   local url="$1"
   local dest="$2"
@@ -116,123 +103,45 @@ download_one() {
   local total="$4"
   local idx="$5"
 
-  local real_url
-  real_url=$(resolve_url "$url")
-
-  # 检查是否支持 Range
-  local supports_range=false
-  if curl -fsSI -r 0-0 "$real_url" </dev/null 2>/dev/null | grep -qi 'content-range'; then
-    supports_range=true
-  fi
-
   local tmpdir
   tmpdir=$(mktemp -d)
+  local tmpfile="${tmpdir}/download"
 
-  if [ "$supports_range" = true ] && [ "${total:-0}" -gt 0 ] && [ "$CHUNKS" -gt 1 ]; then
-    # ── 分片下载 ──
-    local chunk_size=$(( total / CHUNKS ))
-    local pids=()
+  # 直接用 curl -L 跟随重定向，不做 HEAD 预请求
+  curl -fSL --connect-timeout 15 --max-time 600 --retry 2 \
+    -o "$tmpfile" "$url" </dev/null 2>/dev/null &
+  local pid=$!
 
-    for i in $(seq 0 $(( CHUNKS - 1 ))); do
-      local start=$(( i * chunk_size ))
-      local end
-      if [ "$i" -eq $(( CHUNKS - 1 )) ]; then
-        end=$(( total - 1 ))
-      else
-        end=$(( start + chunk_size - 1 ))
-      fi
-
-      curl -fsSL --connect-timeout 10 --max-time 300 \
-        -r "${start}-${end}" \
-        -o "${tmpdir}/chunk_${i}" \
-        "$real_url" </dev/null &
-      pids+=($!)
-    done
-
-    # 监控进度
-    while true; do
-      sleep 0.5
-      local downloaded=0
-      local all_done=true
-      for i in $(seq 0 $(( CHUNKS - 1 ))); do
-        if [ -f "${tmpdir}/chunk_${i}" ]; then
-          local sz
-          sz=$(wc -c < "${tmpdir}/chunk_${i}" 2>/dev/null || echo 0)
-          # trim whitespace (macOS wc adds spaces)
-          sz=$(echo "$sz" | tr -d ' ')
-          downloaded=$(( downloaded + sz ))
-        fi
-        if kill -0 "${pids[$i]}" 2>/dev/null; then
-          all_done=false
-        fi
-      done
-
-      local pct=0
-      if [ "$total" -gt 0 ]; then
-        pct=$(( downloaded * 100 / total ))
-      fi
-      [ "$pct" -gt 100 ] && pct=100
-
-      # 绘制进度条
-      local bar_w=25
-      local filled=$(( pct * bar_w / 100 ))
-      local empty=$(( bar_w - filled ))
-      local bar=""
-      for j in $(seq 1 $filled); do bar="${bar}█"; done
-      for j in $(seq 1 $empty); do bar="${bar}░"; done
-
-      printf "\r  ${CYAN}[%s]${RESET} %-13s %s %3d%%  %s / %s" \
-        "$idx" "$label" "$bar" "$pct" "$(format_size $downloaded)" "$(format_size $total)"
-
-      if $all_done; then break; fi
-    done
-
-    # 等待并检查
-    local fail=false
-    for pid in "${pids[@]}"; do
-      wait "$pid" 2>/dev/null || fail=true
-    done
-
-    if $fail; then
-      printf "\r  ${RED}[%s] %-13s 下载失败${RESET}%50s\n" "$idx" "$label" ""
-      rm -rf "$tmpdir"
-      return 1
+  # 监控进度
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 0.5
+    local downloaded=0
+    if [ -f "$tmpfile" ]; then
+      downloaded=$(wc -c < "$tmpfile" 2>/dev/null || echo 0)
+      downloaded=$(echo "$downloaded" | tr -d ' ')
     fi
+    local pct=0
+    if [ "${total:-0}" -gt 0 ]; then
+      pct=$(( downloaded * 100 / total ))
+    fi
+    [ "$pct" -gt 100 ] && pct=100
+    local bar_w=25
+    local filled=$(( pct * bar_w / 100 ))
+    local empty=$(( bar_w - filled ))
+    local bar=""
+    for j in $(seq 1 $filled); do bar="${bar}█"; done
+    for j in $(seq 1 $empty); do bar="${bar}░"; done
+    printf "\r  ${CYAN}[%s]${RESET} %-13s %s %3d%%  %s / %s" \
+      "$idx" "$label" "$bar" "$pct" "$(format_size $downloaded)" "$(format_size $total)"
+  done
 
-    # 合并
-    cat "${tmpdir}"/chunk_* > "$dest"
-  else
-    # ── 普通下载 ──
-    curl -fsSL --connect-timeout 10 --max-time 300 -o "$dest" "$real_url" </dev/null &
-    local pid=$!
-    while kill -0 "$pid" 2>/dev/null; do
-      sleep 0.5
-      local downloaded=0
-      if [ -f "$dest" ]; then
-        downloaded=$(wc -c < "$dest" 2>/dev/null || echo 0)
-        downloaded=$(echo "$downloaded" | tr -d ' ')
-      fi
-      local pct=0
-      if [ "${total:-0}" -gt 0 ]; then
-        pct=$(( downloaded * 100 / total ))
-      fi
-      [ "$pct" -gt 100 ] && pct=100
-      local bar_w=25
-      local filled=$(( pct * bar_w / 100 ))
-      local empty=$(( bar_w - filled ))
-      local bar=""
-      for j in $(seq 1 $filled); do bar="${bar}█"; done
-      for j in $(seq 1 $empty); do bar="${bar}░"; done
-      printf "\r  ${CYAN}[%s]${RESET} %-13s %s %3d%%  %s / %s" \
-        "$idx" "$label" "$bar" "$pct" "$(format_size $downloaded)" "$(format_size $total)"
-    done
-    wait "$pid" 2>/dev/null || {
-      printf "\r  ${RED}[%s] %-13s 下载失败${RESET}%50s\n" "$idx" "$label" ""
-      rm -rf "$tmpdir"
-      return 1
-    }
+  if ! wait "$pid" 2>/dev/null; then
+    printf "\r  ${RED}[%s] %-13s 下载失败${RESET}%50s\n" "$idx" "$label" ""
+    rm -rf "$tmpdir"
+    return 1
   fi
 
+  mv "$tmpfile" "$dest"
   chmod +x "$dest"
   printf "\r  ${GREEN}[%s] %-13s █████████████████████████ 100%%  %s ✓${RESET}%20s\n" \
     "$idx" "$label" "$(format_size $total)" ""
