@@ -144,11 +144,17 @@ else
   fi
 fi
 
-# ── 检查文件是否已是最新（大小匹配即跳过） ──
+# ── 检查文件是否已是最新（版本+大小双重校验） ──
+VERSION_FILE="${INSTALL_DIR}/.version"
+
 is_file_current() {
   local file="$1"
   local expected_size="$2"
   if [ ! -f "$file" ]; then return 1; fi
+  # 版本不匹配则需要重新下载
+  if [ -f "$VERSION_FILE" ] && [ "$(cat "$VERSION_FILE" 2>/dev/null)" != "$LATEST" ]; then
+    return 1
+  fi
   if [ "${expected_size:-0}" -eq 0 ]; then return 1; fi
   local actual
   actual=$(wc -c < "$file" 2>/dev/null | tr -d ' ')
@@ -445,8 +451,9 @@ init_config
 setup_path
 download_desktop_app
 
-# 清理下载临时文件
+# 清理下载临时文件 & 记录版本
 rm -rf "${INSTALL_DIR}/tmp"
+echo "$LATEST" > "${INSTALL_DIR}/.version"
 
 RELEASES_URL="https://github.com/${NIUMA_REPO}/releases/tag/${LATEST}"
 
