@@ -289,19 +289,19 @@ download_desktop_app() {
 
   case "$PLATFORM" in
     macos-arm64)
-      app_file=$(echo "$RELEASE_JSON" | grep -o '"name": *"[^"]*aarch64\.dmg"' | head -1 | cut -d'"' -f4)
+      app_file=$(echo "$RELEASE_JSON" | grep -o '"name": *"[^"]*aarch64[.]dmg"' | head -1 | cut -d'"' -f4)
       ;;
     macos-x64)
-      app_file=$(echo "$RELEASE_JSON" | grep -o '"name": *"[^"]*x64\.dmg"' | head -1 | cut -d'"' -f4)
+      app_file=$(echo "$RELEASE_JSON" | grep -o '"name": *"[^"]*x64[.]dmg"' | head -1 | cut -d'"' -f4)
       ;;
     linux-x64)
-      app_file=$(echo "$RELEASE_JSON" | grep -o '"name": *"[^"]*amd64\.AppImage"' | head -1 | cut -d'"' -f4)
+      app_file=$(echo "$RELEASE_JSON" | grep -o '"name": *"[^"]*amd64[.]AppImage"' | head -1 | cut -d'"' -f4)
       ;;
     linux-arm64)
-      app_file=$(echo "$RELEASE_JSON" | grep -o '"name": *"[^"]*aarch64\.AppImage"' | head -1 | cut -d'"' -f4)
+      app_file=$(echo "$RELEASE_JSON" | grep -o '"name": *"[^"]*aarch64[.]AppImage"' | head -1 | cut -d'"' -f4)
       ;;
     win-x64)
-      app_file=$(echo "$RELEASE_JSON" | grep -o '"name": *"[^"]*x64-setup\.exe"' | head -1 | cut -d'"' -f4)
+      app_file=$(echo "$RELEASE_JSON" | grep -o '"name": *"[^"]*x64-setup[.]exe"' | head -1 | cut -d'"' -f4)
       ;;
   esac
 
@@ -315,9 +315,13 @@ download_desktop_app() {
 
   echo -e "  正在下载 ${BOLD}${app_file}${RESET} ..."
 
-  # 获取文件大小
+  # 获取文件大小（从 release JSON 直接提取对应 asset 的 browser_download_url 和 size）
   local app_size
   app_size=$(get_file_size "$app_file")
+  # 兜底：从 JSON 用 grep 暴力匹配
+  if [ "${app_size:-0}" -eq 0 ] 2>/dev/null; then
+    app_size=$(echo "$RELEASE_JSON" | tr ',' '\n' | grep -A5 "\"$app_file\"" | grep '"size"' | head -1 | grep -o '[0-9]*')
+  fi
   app_size=${app_size:-0}
 
   if ! download_one "$app_url" "$dest" "桌面客户端" "$app_size" "⬇"; then
