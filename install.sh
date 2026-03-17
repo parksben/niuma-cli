@@ -206,7 +206,7 @@ download_one() {
       --out="$(basename "$tmpfile")" \
       --continue=true \
       --auto-file-renaming=false \
-      --allow-overwrite=false \
+      --allow-overwrite=true \
       --split="$CHUNKS" \
       --max-connection-per-server="$CHUNKS" \
       --min-split-size=1M \
