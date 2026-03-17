@@ -200,6 +200,11 @@ download_one() {
 
     printf "  ${CYAN}[%s]${RESET} %-13s 下载中 (aria2c ×%d)...\n" "$idx" "$label" "$CHUNKS"
 
+    # 清理无控制文件的残留（aria2c 无法续传没有 .aria2 的文件）
+    if [ -f "$tmpfile" ] && [ ! -f "${tmpfile}.aria2" ]; then
+      rm -f "$tmpfile"
+    fi
+
     if aria2c \
       --input-file="$url_file" \
       --dir="$dl_dir" \
