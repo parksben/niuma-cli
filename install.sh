@@ -28,9 +28,9 @@ echo "────────────────────────�
 format_size() {
   local bytes=$1
   if [ "$bytes" -gt 1048576 ] 2>/dev/null; then
-    printf "%.1fMB" "$(awk "BEGIN{printf \"%.1f\", $bytes/1048576}")"
+    awk -v b="$bytes" 'BEGIN{printf "%.1fMB", b/1048576}'
   elif [ "$bytes" -gt 1024 ] 2>/dev/null; then
-    printf "%.0fKB" "$(awk "BEGIN{printf \"%.0f\", $bytes/1024}")"
+    awk -v b="$bytes" 'BEGIN{printf "%.0fKB", b/1024}'
   else
     printf "%dB" "$bytes"
   fi
@@ -75,7 +75,7 @@ detect_platform() {
 # ── 获取最新版本（同时缓存 release JSON 供后续提取文件大小） ──
 get_latest_version() {
   echo -n "获取最新版本..."
-  RELEASE_JSON=$(curl -fsSL --connect-timeout 10 "https://api.github.com/repos/${NIUMA_REPO}/releases/latest")
+  RELEASE_JSON=$(curl -fsSL --connect-timeout 10 "https://api.github.com/repos/${NIUMA_REPO}/releases/latest" </dev/null)
   LATEST=$(echo "$RELEASE_JSON" | grep '"tag_name"' | cut -d'"' -f4)
   if [ -z "$LATEST" ]; then
     echo -e " ${RED}✗${RESET}"
@@ -99,7 +99,7 @@ get_file_size() {
 # ── 解析重定向获取真实 URL ────────────────
 resolve_url() {
   local loc
-  loc=$(curl -fsSIL --connect-timeout 10 "$1" 2>/dev/null \
+  loc=$(curl -fsSIL --connect-timeout 10 "$1" </dev/null 2>/dev/null \
     | grep -i '^location:' | tail -1 | tr -d '\r' | awk '{print $2}')
   if [ -n "$loc" ]; then
     echo "$loc"
@@ -121,7 +121,7 @@ download_one() {
 
   # 检查是否支持 Range
   local supports_range=false
-  if curl -fsSI -r 0-0 "$real_url" 2>/dev/null | grep -qi 'content-range'; then
+  if curl -fsSI -r 0-0 "$real_url" </dev/null 2>/dev/null | grep -qi 'content-range'; then
     supports_range=true
   fi
 
@@ -145,7 +145,7 @@ download_one() {
       curl -fsSL --connect-timeout 10 --max-time 300 \
         -r "${start}-${end}" \
         -o "${tmpdir}/chunk_${i}" \
-        "$real_url" &
+        "$real_url" </dev/null &
       pids+=($!)
     done
 
@@ -203,7 +203,7 @@ download_one() {
     cat "${tmpdir}"/chunk_* > "$dest"
   else
     # ── 普通下载 ──
-    curl -fsSL --connect-timeout 10 --max-time 300 -o "$dest" "$real_url" &
+    curl -fsSL --connect-timeout 10 --max-time 300 -o "$dest" "$real_url" </dev/null &
     local pid=$!
     while kill -0 "$pid" 2>/dev/null; do
       sleep 0.5
