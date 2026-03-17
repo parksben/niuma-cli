@@ -289,17 +289,17 @@ download_desktop_app() {
 
   case "$PLATFORM" in
     macos-arm64|macos-x64)
-      app_file="niuma-desktop_${LATEST#v}_aarch64.dmg"
-      [ "$PLATFORM" = "macos-x64" ] && app_file="niuma-desktop_${LATEST#v}_x64.dmg"
+      app_file="牛马_${LATEST#v}_aarch64.dmg"
+      [ "$PLATFORM" = "macos-x64" ] && app_file="牛马_${LATEST#v}_x64.dmg"
       ;;
     linux-x64)
-      app_file="niuma-desktop_${LATEST#v}_amd64.AppImage"
+      app_file="牛马_${LATEST#v}_amd64.AppImage"
       ;;
     linux-arm64)
-      app_file="niuma-desktop_${LATEST#v}_aarch64.AppImage"
+      app_file="牛马_${LATEST#v}_aarch64.AppImage"
       ;;
     win-x64)
-      app_file="niuma-desktop_${LATEST#v}_x64-setup.exe"
+      app_file="牛马_${LATEST#v}_x64-setup.exe"
       ;;
   esac
 
