@@ -328,6 +328,14 @@ download_desktop_app() {
   echo ""
   echo -e "  ${GREEN}✓${RESET} 已下载到: ${BOLD}${dest}${RESET}"
 
+  # macOS: 移除隔离属性，防止 "已损坏" 提示
+  case "$PLATFORM" in
+    macos-*)
+      echo -e "  ${DIM}移除 macOS 隔离属性...${RESET}"
+      xattr -cr "$dest" 2>/dev/null || true
+      ;;
+  esac
+
   # 打开下载目录
   case "$(uname -s)" in
     Darwin) open "$download_dir" 2>/dev/null ;;
@@ -387,6 +395,7 @@ echo -e "     ${CYAN}niuma server start${RESET}"
 echo ""
 echo -e "  ${BOLD}2.${RESET} 安装桌面客户端"
 echo -e "     安装包已下载到 ~/Downloads，双击即可安装"
+echo -e "     ${DIM}macOS 如提示已损坏，运行: sudo xattr -cr /Applications/牛马.app${RESET}"
 echo ""
 echo -e "  ${BOLD}3.${RESET} 打开客户端，在首次配置页面填入 OpenClaw Token"
 echo -e "     ${DIM}在 OpenClaw 服务器上运行:${RESET} ${CYAN}openclaw token${RESET}"
