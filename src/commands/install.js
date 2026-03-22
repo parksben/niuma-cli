@@ -185,67 +185,10 @@ export const installCommand = new Command('install')
     console.log();
 
     // ─────────────────────────────────────────────
-    // Step 2: 配置邮箱 SMTP
+    // Step 2: 跳过 SMTP（已移至 Web UI SetupPage）
     // ─────────────────────────────────────────────
-    console.log(chalk.bold('Step 2/5  配置邮箱 SMTP'));
-    const emailAnswers = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'email',
-        message: '邮箱地址：',
-        default: config.email?.address,
-        validate: v => v.includes('@') || '请输入有效邮箱地址',
-      },
-      {
-        type: 'password',
-        name: 'smtpToken',
-        message: 'SMTP 授权码：',
-        mask: '*',
-      },
-      {
-        type: 'input',
-        name: 'smtpHost',
-        message: 'SMTP 服务器：',
-        default: config.email?.smtpHost || 'smtp.qq.com',
-        message: 'SMTP 服务器（如 smtp.qq.com / smtp.gmail.com / smtp.126.com）：',
-      },
-      {
-        type: 'number',
-        name: 'smtpPort',
-        message: 'SMTP 端口（465=SSL / 587=TLS）：',
-        default: config.email?.smtpPort || 465,
-      },
-    ]);
-
-    const { sendTestEmail } = await inquirer.prompt([{
-      type: 'confirm',
-      name: 'sendTestEmail',
-      message: '是否发送测试邮件验证配置？',
-      default: false,
-    }]);
-
-    if (sendTestEmail) {
-      const { email: emailAddress, smtpToken, smtpHost, smtpPort } = emailAnswers;
-      const testSpinner = ora('正在发送测试邮件...').start();
-      try {
-        const transporter = nodemailer.createTransport({
-          host: smtpHost,
-          port: smtpPort,
-          secure: smtpPort === 465,
-          auth: { user: emailAddress, pass: smtpToken },
-        });
-        await transporter.sendMail({
-          from: emailAddress,
-          to: emailAddress,
-          subject: '牛马 niuma-server 邮件配置验证',
-          text: '如果你收到这封邮件，说明 SMTP 配置正确 ✅',
-        });
-        testSpinner.succeed(chalk.green(`测试邮件已发送至 ${emailAddress}，请查收`));
-      } catch (err) {
-        testSpinner.fail(`发送失败：${err.message}`);
-      }
-    }
-    console.log();
+    console.log(chalk.gray('Step 2/5  SMTP 邮件配置 → 请安装完成后在 Web UI「设置」页面中配置\n'));
+    const emailAnswers = {}; // 保留变量兼容性
 
     // ─────────────────────────────────────────────
     // Step 3: 在 OpenClaw 上创建 Agent 套件
@@ -298,12 +241,6 @@ export const installCommand = new Command('install')
     console.log(chalk.bold('Step 4/5  部署 niuma-server'));
     const serverAnswers = await inquirer.prompt([
       {
-        type: 'input',
-        name: 'serverPath',
-        message: 'niuma-server 安装路径：',
-        default: (config.server?.path && !config.server.path.startsWith('/opt/') && !config.server.path.startsWith('/root/')) ? config.server.path : `${homedir()}/niuma-server`,
-      },
-      {
         type: 'number',
         name: 'serverPort',
         message: 'niuma-server 端口：',
@@ -311,17 +248,10 @@ export const installCommand = new Command('install')
       },
     ]);
 
-    const { serverPath: rawServerPath, serverPort } = serverAnswers;
-    // 立即展开 ~，避免后续 git clone / node spawn 拿到字面量路径
-    const serverPath = rawServerPath.startsWith('~')
-      ? rawServerPath.replace(/^~/, homedir())
-      : rawServerPath;
-    const alreadyInstalled = existsSync(join(serverPath, 'package.json'));
+    const { serverPort } = serverAnswers;
+    const serverPath = join(homedir(), '.niuma');
 
-    if (alreadyInstalled) {
-      await deployServer({ serverPath, serverPort, emailAnswers, update: true });
-    } else {
-      await deployServer({ serverPath, serverPort, emailAnswers, update: false });
+    await deployServer({ serverPath, serverPort });
     }
     console.log();
 
@@ -431,15 +361,16 @@ export const installCommand = new Command('install')
       },
       server: {
         port: serverPort,
-        path: serverPath.startsWith('~/') ? serverPath.replace(/^~/, homedir()) : serverPath,
+        path: serverPath,
         url: serverUrl,
       },
     });
 
     // 读取 .env 中的 JWT_SECRET 用于展示
-    let jwtSecret = '（见 ' + serverPath + '/.env）';
+    const niumaEnvPath = join(homedir(), '.niuma', '.env');
+    let jwtSecret = `（见 ${niumaEnvPath}）`;
     try {
-      const envContent = readFileSync(join(serverPath, '.env'), 'utf8');
+      const envContent = readFileSync(niumaEnvPath, 'utf8');
       const m = envContent.match(/JWT_SECRET=(.+)/);
       if (m) jwtSecret = m[1].trim();
     } catch {}
@@ -449,10 +380,10 @@ export const installCommand = new Command('install')
     console.log(chalk.bold('  牛马 (niuma) 服务器配置信息'));
     console.log(chalk.bold('─────────────────────────────────────'));
     console.log(`  ${chalk.gray('服务地址：')} ${chalk.cyan.bold(serverUrl)}`);
-    console.log(`  ${chalk.gray('安装路径：')} ${serverPath}`);
+    console.log(`  ${chalk.gray('二进制路径：')} ${join(homedir(), '.niuma', 'bin', 'niuma-server')}`);
     console.log(`  ${chalk.gray('服务端口：')} ${serverPort}`);
     console.log(`  ${chalk.gray('JWT 密钥：')} ${chalk.yellow(jwtSecret)}`);
-    console.log(`  ${chalk.gray('SMTP 邮箱：')} ${emailAnswers.email}`);
+    console.log(`  ${chalk.gray('SMTP：')} 请在 Web UI → 设置 → 邮件 中配置`);
     console.log(`  ${chalk.gray('OpenClaw：')} ${openclawPath}`);
     console.log(chalk.bold('─────────────────────────────────────'));
     console.log(chalk.bold('\n  已创建的 Agent 套件：'));
@@ -517,20 +448,20 @@ export const installCommand = new Command('install')
   });
 
 async function deployServer({ serverPath, serverPort, emailAnswers, update }) {
-  const repoUrl = 'https://github.com/parksben/niuma-server.git';
-  const mirrorUrl = 'https://ghproxy.net/https://github.com/parksben/niuma-server.git';
+  const NIUMA_REPO = 'parksben/niuma';
+  const INSTALL_DIR = join(homedir(), '.niuma');
+  const BIN_DIR = join(INSTALL_DIR, 'bin');
+  const MIRRORS = [
+    'https://ghproxy.net/https://github.com',
+    'https://github.com',
+  ];
 
-  // 选择 clone 地址（优先镜像）
-  function tryClone(url, path) {
-    execSync(`git clone "${url}" "${path}"`, { stdio: 'pipe', timeout: 60000 });
-  }
   // 先停止旧服务
   const stopSpinner = ora('停止旧的 niuma-server...').start();
   try {
     execSync('systemctl stop niuma-server', { stdio: 'pipe' });
     stopSpinner.succeed('旧服务已停止');
   } catch {
-    // systemd 不可用（macOS 等），按端口 kill 占用进程
     try {
       const out = execSync(
         `lsof -ti tcp:${serverPort} 2>/dev/null || fuser ${serverPort}/tcp 2>/dev/null || true`,
@@ -549,56 +480,76 @@ async function deployServer({ serverPath, serverPort, emailAnswers, update }) {
       stopSpinner.succeed('无旧进程，继续安装');
     }
   }
-  // 等待端口释放
   await new Promise(r => setTimeout(r, 1000));
 
-  // Clone / pull
-  const cloneSpinner = ora(update ? '正在更新 niuma-server...' : '正在克隆 niuma-server...').start();
+  // 获取最新 release 版本
+  const versionSpinner = ora('获取最新 niuma-server 版本...').start();
+  let latestTag;
   try {
-    if (update) {
-      execSync(`git -C "${serverPath}" pull`, { stdio: 'pipe' });
-    } else {
-      // 优先走镜像，失败回退直连
+    const releaseJson = execSync(
+      `curl -fsSL --connect-timeout 10 "https://api.github.com/repos/${NIUMA_REPO}/releases/latest"`,
+      { stdio: ['pipe', 'pipe', 'pipe'] }
+    ).toString();
+    latestTag = JSON.parse(releaseJson).tag_name;
+    if (!latestTag) throw new Error('tag_name empty');
+    versionSpinner.succeed(`最新版本：${latestTag}`);
+  } catch (err) {
+    versionSpinner.fail(`获取版本失败：${err.message}`);
+    return;
+  }
+
+  // 检测平台
+  const os = process.platform;
+  const arch = process.arch;
+  let platform;
+  if (os === 'linux' && arch === 'x64') platform = 'linux-x64';
+  else if (os === 'linux' && arch === 'arm64') platform = 'linux-arm64';
+  else if (os === 'darwin' && arch === 'x64') platform = 'macos-x64';
+  else if (os === 'darwin' && arch === 'arm64') platform = 'macos-arm64';
+  else if (os === 'win32') platform = 'windows-x64';
+  else {
+    console.error(chalk.red(`不支持的平台: ${os}/${arch}`));
+    return;
+  }
+
+  const exeSuffix = os === 'win32' ? '.exe' : '';
+  const serverBinary = `niuma-server-${platform}${exeSuffix}`;
+  const serverDest = join(BIN_DIR, `niuma-server${exeSuffix}`);
+
+  // 下载二进制
+  const dlSpinner = ora(`下载 niuma-server (${platform})...`).start();
+  try {
+    execSync(`mkdir -p "${BIN_DIR}"`, { stdio: 'pipe' });
+    let downloaded = false;
+    for (const mirror of MIRRORS) {
+      const url = `${mirror}/${NIUMA_REPO}/releases/download/${latestTag}/${serverBinary}`;
       try {
-        tryClone(mirrorUrl, serverPath);
+        execSync(`curl -fsSL --connect-timeout 15 -o "${serverDest}" "${url}"`, { stdio: 'pipe', timeout: 120000 });
+        downloaded = true;
+        break;
       } catch {
-        cloneSpinner.text = '镜像超时，回退 GitHub 直连...';
-        tryClone(repoUrl, serverPath);
+        dlSpinner.text = `镜像失败，切换下一个...`;
       }
     }
-    cloneSpinner.succeed(update ? 'niuma-server 已更新' : 'niuma-server 克隆完成');
+    if (!downloaded) throw new Error('所有下载源均失败');
+    execSync(`chmod +x "${serverDest}"`, { stdio: 'pipe' });
+    dlSpinner.succeed(`niuma-server 下载完成 → ${serverDest}`);
   } catch (err) {
-    cloneSpinner.fail(`仓库操作失败：${err.message}`);
-    console.error(chalk.yellow('  提示：请检查网络连接或手动克隆 ' + repoUrl));
+    dlSpinner.fail(`下载失败：${err.message}`);
     return;
   }
 
-  // npm install
-  const npmSpinner = ora('正在安装依赖（npm install --production）...').start();
-  try {
-    execSync(`cd "${serverPath}" && npm install --production`, { stdio: 'pipe' });
-    npmSpinner.succeed('依赖安装完成');
-  } catch (err) {
-    npmSpinner.fail(`依赖安装失败：${err.message}`);
-    return;
-  }
-
-  // 写入 .env
-  const envPath = join(serverPath, '.env');
+  // 写入 .env（端口配置，SMTP 在 Web UI 配置）
+  const envPath = join(INSTALL_DIR, '.env');
   const envContent = [
     `PORT=${serverPort}`,
-    `SMTP_HOST=${emailAnswers.smtpHost}`,
-    `SMTP_PORT=${emailAnswers.smtpPort}`,
-    `SMTP_USER=${emailAnswers.email}`,
-    `SMTP_PASS=${emailAnswers.smtpToken}`,
-    `FROM_EMAIL=${emailAnswers.email}`,
   ].join('\n') + '\n';
   writeFileSync(envPath, envContent, 'utf8');
   console.log(chalk.gray(`  ✓ .env 写入完成：${envPath}`));
 
   // 写入 systemd service
   try {
-    writeSystemdService({ serverPath, serverPort });
+    writeSystemdService({ serverPort });
     execSync('systemctl daemon-reload', { stdio: 'pipe' });
     execSync('systemctl enable niuma-server', { stdio: 'pipe' });
     execSync('systemctl start niuma-server', { stdio: 'pipe' });
