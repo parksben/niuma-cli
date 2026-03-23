@@ -252,7 +252,6 @@ export const installCommand = new Command('install')
     const serverPath = join(homedir(), '.niuma');
 
     await deployServer({ serverPath, serverPort });
-    }
     console.log();
 
     // ─────────────────────────────────────────────
