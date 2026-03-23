@@ -1,7 +1,7 @@
 {
   "name": "niuma",
-  "version": "0.1.6",
-  "description": "\u725b\u9a6c\u4ea7\u54c1\u7edf\u4e00\u547d\u4ee4\u884c\u5de5\u5177",
+  "version": "0.1.7",
+  "description": "牛马产品统一命令行工具",
   "type": "module",
   "main": "src/index.js",
   "bin": {
